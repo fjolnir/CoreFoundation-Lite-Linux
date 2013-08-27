@@ -1143,6 +1143,9 @@ void __CFInitialize(void) {
             __CFArgStuff = CFArrayCreate(kCFAllocatorSystemDefault, (const void **)list, count, &kCFTypeArrayCallBacks);
             if (list != buffer) free(list);
 #if DEPLOYMENT_TARGET_LINUX
+            for(size_t i = 0; i < cnt; ++i) {
+                free(args[i]);
+            }
             free(args);
 #elif DEPLOYMENT_TARGET_WINDOWS
             LocalFree(args);
