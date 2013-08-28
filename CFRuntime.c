@@ -1106,12 +1106,12 @@ void __CFInitialize(void) {
                 if(buf[i] == '\0') ++cnt;
             }
             args = malloc(sizeof(char*) * cnt);
-            size_t strStart = 0;
-            for(size_t i = 0; i < argStrLen; ++i) {
+            for(size_t i = 0, j = 0, strStart = 0; i < argStrLen; ++i) {
                 if(buf[i] == '\0') {
-                    args[i] = malloc(sizeof(char) * (i - strStart));
-                    strncpy(args[i], buf+strStart, i - strStart);
+                    args[j] = malloc(sizeof(char) * (i - strStart) + 1);
+                    strncpy(args[j], buf+strStart, i - strStart);
                     strStart = i+1;
+                    ++j;
                 }
             }
 #elif DEPLOYMENT_TARGET_WINDOWS
