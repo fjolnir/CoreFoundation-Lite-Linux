@@ -24,8 +24,10 @@ STYLE_CFLAGS=-O0 -g
 STYLE_LFLAGS=
 
 CC = /usr/bin/clang
+AR = /usr/bin/ar
+RANLIB = /usr/bin/ranlib
 
-CFLAGS=-c -x c -fblocks -fpic -pipe -std=gnu99 -Wno-trigraphs -fexceptions -DCF_BUILDING_CF=1 -DDEPLOYMENT_TARGET_LINUX=1 -DMAC_OS_X_VERSION_MAX_ALLOWED=$(MAX_MACOSX_VERSION) -DU_SHOW_DRAFT_API=1 -DU_SHOW_CPLUSPLUS_API=0 -I$(OBJBASE) -I$(OBJBASE)/CoreFoundation -DVERSION=$(VERSION) -include CoreFoundation_Prefix.h
+CFLAGS=-c -x c -fblocks -fpic -pipe -std=gnu11 -Wno-trigraphs -fexceptions -DCF_BUILDING_CF=1 -DDEPLOYMENT_TARGET_LINUX=1 -DMAC_OS_X_VERSION_MAX_ALLOWED=$(MAX_MACOSX_VERSION) -DU_SHOW_DRAFT_API=1 -DU_SHOW_CPLUSPLUS_API=0 -I$(OBJBASE) -I$(OBJBASE)/CoreFoundation -DVERSION=$(VERSION) -include CoreFoundation_Prefix.h
 
 LFLAGS=-shared -fpic -init=___CFInitialize -Wl,--no-undefined,-soname,libCoreFoundation.so
 
@@ -35,7 +37,7 @@ LIBS=-lc -lpthread -lm -lrt  -licuuc -licudata -licui18n -lBlocksRuntime -ldispa
 .PHONY: all install clean
 .PRECIOUS: $(OBJBASE)/CoreFoundation/%.h
 
-all: $(OBJBASE)/libCoreFoundation.so
+all: $(OBJBASE)/libCoreFoundation.so $(OBJBASE)/libCoreFoundation.a
 
 clean:
 	-/bin/rm -rf $(OBJBASE_ROOT)
@@ -52,11 +54,15 @@ $(OBJBASE)/%.o: %.c $(INTERMEDIATE_HFILES)
 $(OBJBASE)/%.o: %.m $(INTERMEDIATE_HFILES)
 	$(CC) $(STYLE_CFLAGS) $(CFLAGS) $< -o $@
 
+$(OBJBASE)/libCoreFoundation.a: $(addprefix $(OBJBASE)/,$(OBJECTS))
+	$(AR) cru libCoreFoundation.a $^
+	$(RANLIB) libCoreFoundation.a
+
 $(OBJBASE)/libCoreFoundation.so: $(addprefix $(OBJBASE)/,$(OBJECTS))
 	$(CC) $(STYLE_LFLAGS) $(LFLAGS) $^ -L/usr/local/lib $(LIBS) -o $(OBJBASE)/libCoreFoundation.so
 	@echo "Building done. 'sudo make install' to put the result into $(DSTBASE)/lib and $(DSTBASE)/include."
 	
-install: $(OBJBASE)/libCoreFoundation.so
+install: $(OBJBASE)/libCoreFoundation.so $(OBJBASE)/libCoreFoundation.a
 	/bin/mkdir -p $(DSTBASE)
 	/bin/mkdir -p $(DSTBASE)/include/CoreFoundation
 	/bin/mkdir -p $(DSTBASE)/share/CoreFoundation
@@ -65,6 +71,7 @@ install: $(OBJBASE)/libCoreFoundation.so
 	/bin/cp $(PRIVATE_HEADERS) $(DSTBASE)/include/CoreFoundation
 	/bin/cp $(PUBLIC_HEADERS) $(DSTBASE)/include/CoreFoundation
 	/bin/cp $(OBJBASE)/libCoreFoundation.so $(DSTBASE)/lib
+	/bin/cp $(OBJBASE)/libCoreFoundation.a $(DSTBASE)/lib
 	/bin/cp $(RESOURCES) $(DSTBASE)/share/CoreFoundation
 	# this one goes outside the base directory
 	/bin/cp TargetConditionals.h $(DSTBASE)/include
