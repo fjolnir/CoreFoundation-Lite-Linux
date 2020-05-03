@@ -553,6 +553,9 @@ CF_EXPORT CFArrayRef CFDateFormatterCreateDateFormatsFromTemplates(CFAllocatorRe
 CF_EXPORT CFNotificationCenterRef CFNotificationCenterGetDistributedCenter(void);
 #endif
 
+#ifndef HALT
+#define HALT exit(-1)
+#endif
 
 CF_EXTERN_C_END
 

@@ -859,7 +859,7 @@ static void __CFArrayRepositionDequeRegions(CFMutableArrayRef array, CFRange ran
     }
 }
 
-static void __CFArrayHandleOutOfMemory(CFTypeRef obj, CFIndex numBytes) {
+	static void __CFArrayHandleOutOfMemory(CFTypeRef obj, CFIndex numBytes) {
     CFStringRef msg = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("Attempt to allocate %ld bytes for CFArray failed"), numBytes);
     {
         CFLog(kCFLogLevelCritical, CFSTR("%@"), msg);
