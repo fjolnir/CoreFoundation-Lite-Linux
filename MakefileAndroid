@@ -1,38 +1,38 @@
 
 include MakefileVersion
 
-MIN_MACOSX_VERSION=10.7
-MAX_MACOSX_VERSION=MAC_OS_X_VERSION_10_7
+MIN_MACOSX_VERSION=10.9
+MAX_MACOSX_VERSION=MAC_OS_X_VERSION_10_9
 
-OBJECTS = CFCharacterSet.o CFPreferences.o CFApplicationPreferences.o CFXMLPreferencesDomain.o CFStringEncodingConverter.o CFUniChar.o CFArray.o CFOldStylePList.o CFPropertyList.o CFStringEncodingDatabase.o CFUnicodeDecomposition.o CFBag.o CFData.o  CFStringEncodings.o CFUnicodePrecomposition.o CFBase.o CFDate.o CFNumber.o CFRuntime.o CFStringScanner.o CFBinaryHeap.o CFDateFormatter.o CFNumberFormatter.o CFSet.o CFStringUtilities.o CFUtilities.o CFBinaryPList.o CFDictionary.o CFPlatform.o CFSystemDirectories.o CFVersion.o CFBitVector.o CFError.o CFPlatformConverters.o CFTimeZone.o  CFBuiltinConverters.o CFFileUtilities.o  CFSortFunctions.o CFTree.o CFICUConverters.o CFURL.o CFLocale.o  CFURLAccess.o CFCalendar.o CFLocaleIdentifier.o CFString.o CFUUID.o CFStorage.o CFLocaleKeys.o CFBigNumber.o CFBurstTrie.o
+OBJECTS = CFCharacterSet.o CFPreferences.o CFApplicationPreferences.o CFXMLPreferencesDomain.o CFStringEncodingConverter.o CFUniChar.o CFArray.o CFOldStylePList.o CFPropertyList.o CFStringEncodingDatabase.o CFUnicodeDecomposition.o CFBag.o CFData.o  CFStringEncodings.o CFUnicodePrecomposition.o CFBase.o CFDate.o CFNumber.o CFRuntime.o CFStringScanner.o CFBinaryHeap.o CFDateFormatter.o CFNumberFormatter.o CFSet.o CFStringUtilities.o CFUtilities.o CFBinaryPList.o CFDictionary.o CFPlatform.o CFSystemDirectories.o CFVersion.o CFBitVector.o CFError.o CFPlatformConverters.o CFTimeZone.o  CFBuiltinConverters.o CFFileUtilities.o  CFSortFunctions.o CFTree.o CFICUConverters.o CFURL.o CFURLEnumerator.o CFLocale.o  CFURLAccess.o CFCalendar.o CFLocaleIdentifier.o CFString.o CFUUID.o CFStorage.o CFLocaleKeys.o CFBigNumber.o CFBurstTrie.o
 OBJECTS += CFBasicHash.o
 HFILES = $(wildcard *.h)
 INTERMEDIATE_HFILES = $(addprefix $(OBJBASE)/CoreFoundation/,$(HFILES))
 
-PUBLIC_HEADERS=CFArray.h CFBag.h CFBase.h CFBinaryHeap.h CFBitVector.h CFByteOrder.h CFCalendar.h CFCharacterSet.h CFData.h CFDate.h CFDateFormatter.h CFDictionary.h CFError.h CFLocale.h CFMachPort.h CFNumber.h CFNumberFormatter.h CFPreferences.h CFPropertyList.h CFSet.h CFString.h CFStringEncodingExt.h CFTimeZone.h CFTree.h CFURL.h CFURLAccess.h CFUUID.h CoreFoundation.h TargetConditionals.h
+PUBLIC_HEADERS=CFArray.h CFBag.h CFBase.h CFBinaryHeap.h CFBitVector.h CFByteOrder.h CFCalendar.h CFCharacterSet.h CFData.h CFDate.h CFDateFormatter.h CFDictionary.h CFError.h CFLocale.h CFMachPort.h CFNumber.h CFNumberFormatter.h CFPreferences.h CFPropertyList.h CFSet.h CFString.h CFStringEncodingExt.h CFTimeZone.h CFURLEnumerator.h CFTree.h CFURL.h CFURLAccess.h CFUUID.h CFAvailability.h CFUtilities.h CoreFoundation.h TargetConditionals.h
 
-PRIVATE_HEADERS= CFCharacterSetPriv.h CFError_Private.h CFLogUtilities.h CFPriv.h CFRuntime.h CFStorage.h CFStringDefaultEncoding.h CFStringEncodingConverter.h CFStringEncodingConverterExt.h CFUniChar.h CFUnicodeDecomposition.h CFUnicodePrecomposition.h ForFoundationOnly.h 
+PRIVATE_HEADERS= CFCharacterSetPriv.h CFError_Private.h CFLogUtilities.h CFPriv.h CFRuntime.h CFStorage.h CFStringDefaultEncoding.h CFStringEncodingConverter.h CFStringEncodingConverterExt.h CFUniChar.h CFUnicodeDecomposition.h CFUnicodePrecomposition.h ForFoundationOnly.h CFICULogging.h
 
 RESOURCES = CFCharacterSetBitmaps.bitmap CFUnicodeData-L.mapping CFUnicodeData-B.mapping
 
 OBJBASE_ROOT = CF-Objects
 OBJBASE = $(OBJBASE_ROOT)/$(STYLE)
-DSTBASE = /Users/andyvand/Downloads/android-ndk-r21b/i686_prefix
+DSTBASE = /usr/local
 
 STYLE=normal
 STYLE_CFLAGS=-O0 -g
 STYLE_LFLAGS=
 
-CC = /Users/andyvand/Downloads/android-ndk-r21b/toolchains/llvm/prebuilt/darwin-x86_64/bin/i686-linux-android23-clang 
-AR = /Users/andyvand/Downloads/android-ndk-r21b/toolchains/x86-4.9/prebuilt/darwin-x86_64/bin/i686-linux-android-ar
-RANLIB = /Users/andyvand/Downloads/android-ndk-r21b/toolchains/x86-4.9/prebuilt/darwin-x86_64/bin/i686-linux-android-ranlib
+CC = /Users/andyvand/Downloads/android-ndk-r21b/toolchains/llvm/prebuilt/darwin-x86_64/bin/x86_64-linux-android23-clang 
+AR = /Users/andyvand/Downloads/android-ndk-r21b/toolchains/x86_64-4.9/prebuilt/darwin-x86_64/bin/x86_64-linux-android-ar
+RANLIB = /Users/andyvand/Downloads/android-ndk-r21b/toolchains/x86_64-4.9/prebuilt/darwin-x86_64/bin/x86_64-linux-android-ranlib
 
-CFLAGS=-c -x c -fblocks -fpic -pipe -std=gnu11 -Wno-trigraphs -fexceptions -DCF_BUILDING_CF=1 -DDEPLOYMENT_TARGET_LINUX=1 -DMAC_OS_X_VERSION_MAX_ALLOWED=$(MAX_MACOSX_VERSION) -DU_SHOW_DRAFT_API=1 -DU_SHOW_CPLUSPLUS_API=0 -I/Users/andyvand/Downloads/android-ndk-r21b/i686_prefix/include -I$(OBJBASE) -I$(OBJBASE)/CoreFoundation -DVERSION=$(VERSION) -include CoreFoundation_Prefix.h
+CFLAGS=-c -x c -fblocks -fpic -pipe -std=gnu11 -Wno-trigraphs -fexceptions -DCF_BUILDING_CF=1 -DDEPLOYMENT_TARGET_LINUX=1 -DMAC_OS_X_VERSION_MAX_ALLOWED=$(MAX_MACOSX_VERSION) -DU_SHOW_DRAFT_API=1 -DU_SHOW_CPLUSPLUS_API=0 -DOSSpinLock=pthread_mutex_t -DOS_SPINLOCK_INIT=PTHREAD_MUTEX_INITIALIZER -DOSSpinLockLock=pthread_mutex_lock -DOSSpinLockUnlock=pthread_mutex_unlock -I/Users/andyvand/Downloads/android-ndk-r21b/x86_64_prefix/include -I$(OBJBASE) -I$(OBJBASE)/CoreFoundation -DVERSION=$(VERSION) -include CoreFoundation_Prefix.h
 
 LFLAGS=-shared -fpic -Wl,--no-undefined,-soname,libCoreFoundation.so
 
 # Libs for open source version of ICU
-LIBS=-lc -pthread -lm -lcompiler_rt-extras -L/Users/andyvand/Downloads/android-ndk-r21b/i686_prefix/lib -licuuc -licudata -licui18n -lBlocksRuntime -ldispatch
+LIBS=-lc -pthread -lm -lcompiler_rt-extras -L/Users/andyvand/Downloads/android-ndk-r21b/x86_64_prefix/lib -licuuc -licudata -licui18n -lBlocksRuntime -ldispatch
 
 .PHONY: all install clean
 .PRECIOUS: $(OBJBASE)/CoreFoundation/%.h

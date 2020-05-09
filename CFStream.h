@@ -1,15 +1,15 @@
 /*
- * Copyright (c) 2012 Apple Inc. All rights reserved.
+ * Copyright (c) 2015 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
- * 
+ *
  * This file contains Original Code and/or Modifications of Original Code
  * as defined in and that are subject to the Apple Public Source License
  * Version 2.0 (the 'License'). You may not use this file except in
  * compliance with the License. Please obtain a copy of the License at
  * http://www.opensource.apple.com/apsl/ and read it before using this
  * file.
- * 
+ *
  * The Original Code and all software distributed under the License are
  * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
  * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
@@ -17,12 +17,12 @@
  * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
  * Please see the License for the specific language governing rights and
  * limitations under the License.
- * 
+ *
  * @APPLE_LICENSE_HEADER_END@
  */
 
 /*	CFStream.h
-	Copyright (c) 2000-2012, Apple Inc. All rights reserved.
+	Copyright (c) 2000-2014, Apple Inc. All rights reserved.
 */
 
 #if !defined(__COREFOUNDATION_CFSTREAM__)
@@ -35,6 +35,7 @@
 #include <CoreFoundation/CFRunLoop.h>
 #include <CoreFoundation/CFSocket.h>
 #include <CoreFoundation/CFError.h>
+#include <dispatch/dispatch.h>
 
 CF_IMPLICIT_BRIDGING_ENABLED
 CF_EXTERN_C_BEGIN
@@ -67,8 +68,8 @@ typedef struct {
     CFStringRef (*copyDescription)(void *info);
 } CFStreamClientContext;
 
-typedef struct __CFReadStream * CFReadStreamRef;
-typedef struct __CFWriteStream * CFWriteStreamRef;
+typedef struct CF_BRIDGED_MUTABLE_TYPE(NSInputStream) __CFReadStream * CFReadStreamRef;
+typedef struct CF_BRIDGED_MUTABLE_TYPE(NSOutputStream) __CFWriteStream * CFWriteStreamRef;
 
 typedef void (*CFReadStreamClientCallBack)(CFReadStreamRef stream, CFStreamEventType type, void *clientCallBackInfo);
 typedef void (*CFWriteStreamClientCallBack)(CFWriteStreamRef stream, CFStreamEventType type, void *clientCallBackInfo);
@@ -185,12 +186,12 @@ CF_EXPORT
 CFIndex CFReadStreamRead(CFReadStreamRef stream, UInt8 *buffer, CFIndex bufferLength);
 
 /* Returns a pointer to an internal buffer if possible (setting *numBytesRead
-   to the length of the returned buffer), otherwise returns NULL; guaranteed 
-   to return in O(1).  Bytes returned in the buffer are considered read from 
+   to the length of the returned buffer), otherwise returns NULL; guaranteed
+   to return in O(1).  Bytes returned in the buffer are considered read from
    the stream; if maxBytesToRead is greater than 0, not more than maxBytesToRead
    will be returned.  If maxBytesToRead is less than or equal to zero, as many bytes
-   as are readily available will be returned.  The returned buffer is good only 
-   until the next stream operation called on the stream.  Caller should neither 
+   as are readily available will be returned.  The returned buffer is good only
+   until the next stream operation called on the stream.  Caller should neither
    change the contents of the returned buffer nor attempt to deallocate the buffer;
    it is still owned by the stream. */
 CF_EXPORT
@@ -232,12 +233,11 @@ Boolean CFWriteStreamSetProperty(CFWriteStreamRef stream, CFStringRef propertyNa
 /* Asynchronous processing - If you wish to neither poll nor block, you may register 
    a client to hear about interesting events that occur on a stream.  Only one client
    per stream is allowed; registering a new client replaces the previous one.
-
-   Once you have set a client, you need to schedule a run loop on which that client
-   can be notified.  You may schedule multiple run loops (for instance, if you are 
-   using a thread pool).  The client callback will be triggered via one of the scheduled
-   run loops; It is the caller's responsibility to ensure that at least one of the 
-   scheduled run loops is being run.
+ 
+   Once you have set a client, the stream must be scheduled to provide the context in
+   which the client will be called.  Streams may be scheduled on a single dispatch queue
+   or on one or more run loops.  If scheduled on a run loop, it is the caller's responsibility
+   to ensure that at least one of the scheduled run loops is being run.
 
    NOTE: Unlike other CoreFoundation APIs, pasing a NULL clientContext here will remove
    the client.  If you do not care about the client context (i.e. your only concern
@@ -261,6 +261,29 @@ void CFReadStreamUnscheduleFromRunLoop(CFReadStreamRef stream, CFRunLoopRef runL
 CF_EXPORT
 void CFWriteStreamUnscheduleFromRunLoop(CFWriteStreamRef stream, CFRunLoopRef runLoop, CFStringRef runLoopMode);
 
+/*
+ * Specify the dispatch queue upon which the client callbacks will be invoked.
+ * Passing NULL for the queue will prevent future callbacks from being invoked.
+ * Specifying a dispatch queue using this API will unschedule the stream from
+ * any run loops it had previously been scheduled upon - similarly, scheduling
+ * with a runloop will disassociate the stream from any existing dispatch queue.
+ */
+CF_EXPORT
+void CFReadStreamSetDispatchQueue(CFReadStreamRef stream, dispatch_queue_t q) CF_AVAILABLE(10_9, 7_0);
+
+CF_EXPORT
+void CFWriteStreamSetDispatchQueue(CFWriteStreamRef stream, dispatch_queue_t q) CF_AVAILABLE(10_9, 7_0);
+
+/*
+ * Returns the previously set dispatch queue with an incremented retain count.  
+ * Note that the stream's queue may have been set to NULL if the stream was 
+ * scheduled on a runloop subsequent to it having had a dispatch queue set.
+ */
+CF_EXPORT
+dispatch_queue_t CFReadStreamCopyDispatchQueue(CFReadStreamRef stream) CF_AVAILABLE(10_9, 7_0);
+
+CF_EXPORT
+dispatch_queue_t CFWriteStreamCopyDispatchQueue(CFWriteStreamRef stream) CF_AVAILABLE(10_9, 7_0);
 
 /* The following API is deprecated starting in 10.5; please use CFRead/WriteStreamCopyError(), above, instead */
 typedef CF_ENUM(CFIndex, CFStreamErrorDomain) {
