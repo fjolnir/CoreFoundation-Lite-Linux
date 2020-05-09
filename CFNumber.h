@@ -33,6 +33,10 @@
 CF_IMPLICIT_BRIDGING_ENABLED
 CF_EXTERN_C_BEGIN
 
+#ifndef CF_BRIDGED_TYPE
+#define CF_BRIDGED_TYPE(T)
+#endif
+
 typedef const struct CF_BRIDGED_TYPE(NSNumber) __CFBoolean * CFBooleanRef;
 
 CF_EXPORT

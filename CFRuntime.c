@@ -295,9 +295,13 @@ CFTypeRef _CFRuntimeCreateInstance(CFAllocatorRef allocator, CFTypeID typeID, CF
     if (NULL == cls) {
 	return NULL;
     }
+#if !(TARGET_OS_LINUX && (defined(__i386__) || defined(__arm__) || defined(__aarch64__)))
     if (cls->version & _kCFRuntimeRequiresAlignment) {
+#endif
         allocator = kCFAllocatorSystemDefault;
+#if !(TARGET_OS_LINUX && (defined(__i386__) || defined(__arm__) || defined(__aarch64__)))
     }
+#endif
     Boolean customRC = !!(cls->version & _kCFRuntimeCustomRefCount);
     if (customRC && !cls->refcount) {
         CFLog(kCFLogLevelWarning, CFSTR("*** _CFRuntimeCreateInstance() found inconsistent class '%s'."), cls->className);
@@ -308,7 +312,11 @@ CFTypeRef _CFRuntimeCreateInstance(CFAllocatorRef allocator, CFTypeID typeID, CF
 	return NULL;
     }
     Boolean usesSystemDefaultAllocator = _CFAllocatorIsSystemDefault(realAllocator);
+#if TARGET_OS_LINUX && (defined(__i386__) || defined(__arm__) || defined(__aarch64__))
+    size_t align = 16;
+#else
     size_t align = (cls->version & _kCFRuntimeRequiresAlignment) ? cls->requiredAlignment : 16;
+#endif
     CFIndex size = sizeof(CFRuntimeBase) + extraBytes + (usesSystemDefaultAllocator ? 0 : sizeof(CFAllocatorRef));
     size = (size + 0xF) & ~0xF;	// CF objects are multiples of 16 in size
     // CFType version 0 objects are unscanned by default since they don't have write-barriers and hard retain their innards

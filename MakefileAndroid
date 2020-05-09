@@ -17,22 +17,22 @@ RESOURCES = CFCharacterSetBitmaps.bitmap CFUnicodeData-L.mapping CFUnicodeData-B
 
 OBJBASE_ROOT = CF-Objects
 OBJBASE = $(OBJBASE_ROOT)/$(STYLE)
-DSTBASE = /usr/local
+DSTBASE = /Users/andyvand/Downloads/android-ndk-r21b/aarch64_prefix
 
 STYLE=normal
 STYLE_CFLAGS=-O0 -g
 STYLE_LFLAGS=
 
-CC = /Users/andyvand/Downloads/android-ndk-r21b/toolchains/llvm/prebuilt/darwin-x86_64/bin/x86_64-linux-android23-clang 
-AR = /Users/andyvand/Downloads/android-ndk-r21b/toolchains/x86_64-4.9/prebuilt/darwin-x86_64/bin/x86_64-linux-android-ar
-RANLIB = /Users/andyvand/Downloads/android-ndk-r21b/toolchains/x86_64-4.9/prebuilt/darwin-x86_64/bin/x86_64-linux-android-ranlib
+CC = $(HOME)/Downloads/android-ndk-r21b/toolchains/llvm/prebuilt/darwin-x86_64/bin/x86_64-linux-android23-clang
+AR = $(HOME)/Downloads/android-ndk-r21b/toolchains/x86_64-4.9/prebuilt/darwin-x86_64/bin/x86_64-linux-android-ar
+RANLIB = $(HOME)/Downloads/android-ndk-r21b/toolchains/x86_64-4.9/prebuilt/darwin-x86_64/bin/x86_64-linux-android-ranlib
 
-CFLAGS=-c -x c -fblocks -fpic -pipe -std=gnu11 -Wno-trigraphs -fexceptions -DCF_BUILDING_CF=1 -DDEPLOYMENT_TARGET_LINUX=1 -DMAC_OS_X_VERSION_MAX_ALLOWED=$(MAX_MACOSX_VERSION) -DU_SHOW_DRAFT_API=1 -DU_SHOW_CPLUSPLUS_API=0 -DOSSpinLock=pthread_mutex_t -DOS_SPINLOCK_INIT=PTHREAD_MUTEX_INITIALIZER -DOSSpinLockLock=pthread_mutex_lock -DOSSpinLockUnlock=pthread_mutex_unlock -I/Users/andyvand/Downloads/android-ndk-r21b/x86_64_prefix/include -I$(OBJBASE) -I$(OBJBASE)/CoreFoundation -DVERSION=$(VERSION) -include CoreFoundation_Prefix.h
+CFLAGS=-c -x c -fblocks -fpic -pipe -std=gnu11 -Wno-trigraphs -fexceptions -DCF_BUILDING_CF=1 -DDEPLOYMENT_TARGET_LINUX=1 -DMAC_OS_X_VERSION_MAX_ALLOWED=$(MAX_MACOSX_VERSION) -DU_SHOW_DRAFT_API=1 -DU_SHOW_CPLUSPLUS_API=0 -DOSSpinLock=pthread_mutex_t -DOS_SPINLOCK_INIT=PTHREAD_MUTEX_INITIALIZER -DOSSpinLockLock=pthread_mutex_lock -DOSSpinLockUnlock=pthread_mutex_unlock -I$(HOME)/Downloads/android-ndk-r21b/x86_64_prefix/include -I$(OBJBASE) -I$(OBJBASE)/CoreFoundation -DVERSION=$(VERSION) -include CoreFoundation_Prefix.h
 
 LFLAGS=-shared -fpic -Wl,--no-undefined,-soname,libCoreFoundation.so
 
 # Libs for open source version of ICU
-LIBS=-lc -pthread -lm -lcompiler_rt-extras -L/Users/andyvand/Downloads/android-ndk-r21b/x86_64_prefix/lib -licuuc -licudata -licui18n -lBlocksRuntime -ldispatch
+LIBS=-lc -pthread -lm -lcompiler_rt-extras -L$(HOME)/Downloads/android-ndk-r21b/x86_64_prefix/lib -licuuc -licudata -licui18n -lBlocksRuntime -ldispatch
 
 .PHONY: all install clean
 .PRECIOUS: $(OBJBASE)/CoreFoundation/%.h
@@ -59,7 +59,7 @@ $(OBJBASE)/libCoreFoundation.a: $(addprefix $(OBJBASE)/,$(OBJECTS))
 	$(RANLIB) $(OBJBASE)/libCoreFoundation.a
 
 $(OBJBASE)/libCoreFoundation.so: $(addprefix $(OBJBASE)/,$(OBJECTS))
-	$(CC) $(STYLE_LFLAGS) $(LFLAGS) $^ -L/usr/local/lib $(LIBS) -o $(OBJBASE)/libCoreFoundation.so
+	$(CC) $(STYLE_LFLAGS) $(LFLAGS) $^ -L$(DSTBASE)/lib $(LIBS) -o $(OBJBASE)/libCoreFoundation.so
 	@echo "Building done. 'sudo make install' to put the result into $(DSTBASE)/lib and $(DSTBASE)/include."
 	
 install: $(OBJBASE)/libCoreFoundation.so $(OBJBASE)/libCoreFoundation.a

@@ -306,6 +306,50 @@ extern UniChar __CFCharToUniCharTable[256];
 
 
 #if defined(CF_INLINE)
+#if defined(__i386__) || defined(__arm__) || defined(__aarch64__)
+CF_INLINE const UniChar *CFStringGetCharactersPtrFromInlineBuffer(CFStringInlineBuffer *buf, CFRange desiredRange) {
+    if ((desiredRange.location < 0) || ((desiredRange.location + desiredRange.length) > buf->rangeToBuffer.length)) return NULL;
+
+    if (buf->directBuffer) {
+        return buf->directBuffer + buf->rangeToBuffer.location + desiredRange.location;
+    } else {
+        if (desiredRange.length > __kCFStringInlineBufferLength) return NULL;
+
+        if (((desiredRange.location + desiredRange.length) > buf->bufferedRangeEnd) || (desiredRange.location < buf->bufferedRangeStart)) {
+            buf->bufferedRangeStart = desiredRange.location;
+            buf->bufferedRangeEnd = buf->bufferedRangeStart + __kCFStringInlineBufferLength;
+            if (buf->bufferedRangeEnd > buf->rangeToBuffer.length) buf->bufferedRangeEnd = buf->rangeToBuffer.length;
+            CFStringGetCharacters(buf->theString, CFRangeMake(buf->rangeToBuffer.location + buf->bufferedRangeStart, buf->bufferedRangeEnd - buf->bufferedRangeStart), buf->buffer);
+        }
+
+        return buf->buffer + (desiredRange.location - buf->bufferedRangeStart);
+    }
+}
+
+CF_INLINE void CFStringGetCharactersFromInlineBuffer(CFStringInlineBuffer *buf, CFRange desiredRange, UniChar *outBuf) {
+    if (buf->directBuffer) {
+        memmove(outBuf, buf->directBuffer + buf->rangeToBuffer.location + desiredRange.location, desiredRange.length * sizeof(UniChar));
+    } else {
+        if ((desiredRange.location >= buf->bufferedRangeStart) && (desiredRange.location < buf->bufferedRangeEnd)) {
+            CFIndex bufLen = desiredRange.length;
+
+            if (bufLen > (buf->bufferedRangeEnd - desiredRange.location)) bufLen = (buf->bufferedRangeEnd - desiredRange.location);
+
+            memmove(outBuf, buf->buffer + (desiredRange.location - buf->bufferedRangeStart), bufLen * sizeof(UniChar));
+            outBuf += bufLen; desiredRange.location += bufLen; desiredRange.length -= bufLen;
+        } else {
+            CFIndex desiredRangeMax = (desiredRange.location + desiredRange.length);
+
+            if ((desiredRangeMax > buf->bufferedRangeStart) && (desiredRangeMax < buf->bufferedRangeEnd)) {
+                desiredRange.length = (buf->bufferedRangeStart - desiredRange.location);
+                memmove(outBuf + desiredRange.length, buf->buffer, (desiredRangeMax - buf->bufferedRangeStart) * sizeof(UniChar));
+            }
+        }
+
+        if (desiredRange.length > 0) CFStringGetCharacters(buf->theString, CFRangeMake(buf->rangeToBuffer.location + desiredRange.location, desiredRange.length), outBuf);
+    }
+}
+#else
 CF_INLINE const UniChar *CFStringGetCharactersPtrFromInlineBuffer(CFStringInlineBuffer *buf, CFRange desiredRange) {
     if ((desiredRange.location < 0) || ((desiredRange.location + desiredRange.length) > buf->rangeToBuffer.length)) return NULL;
 
@@ -364,6 +408,7 @@ CF_INLINE void CFStringGetCharactersFromInlineBuffer(CFStringInlineBuffer *buf, 
         }
     }
 }
+#endif
 
 #else
 #define CFStringGetCharactersPtrFromInlineBuffer(buf, desiredRange) ((buf)->directUniCharBuffer ? (buf)->directUniCharBuffer + (buf)->rangeToBuffer.location + desiredRange.location : NULL)
@@ -564,10 +609,6 @@ CF_EXPORT void CFMessagePortSetCloneCallout(CFMessagePortRef ms, CFMessagePortCa
 
 CF_EXPORT CFMessagePortRef CFMessagePortCreatePerProcessLocal(CFAllocatorRef allocator, CFStringRef name, CFMessagePortCallBack callout, CFMessagePortContext *context, Boolean *shouldFreeInfo);
 CF_EXPORT CFMessagePortRef CFMessagePortCreatePerProcessRemote(CFAllocatorRef allocator, CFStringRef name, CFIndex pid);
-
-#ifndef HALT
-#define HALT exit(-1)
-#endif
 
 typedef CFDataRef (*CFMessagePortCallBackEx)(CFMessagePortRef local, SInt32 msgid, CFDataRef data, void *info, void *trailer, uintptr_t);
 

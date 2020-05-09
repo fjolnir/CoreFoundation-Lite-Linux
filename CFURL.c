@@ -1852,6 +1852,10 @@ static CFStringRef correctedComponent(CFStringRef comp, UInt32 compFlag, CFStrin
     return result;
 }
 
+#if defined(__i386__) || defined(__arm__) || defined(__aarch64__)
+#define _CFURLAlloc _CFURLAlloc2
+#define _CFStringIsLegalURLString _CFStringIsLegalURLString2
+#endif
 
 static struct __CFURL * _CFURLAlloc(CFAllocatorRef allocator, uint8_t numberOfRanges);
 static CFURLRef _CFURLCreateWithURLString(CFAllocatorRef allocator, CFStringRef string, Boolean checkForLegalCharacters, CFURLRef baseURL);
@@ -2539,6 +2543,7 @@ static CFStringRef _resolvedPath(UniChar *pathStr, UniChar *end, UniChar pathDel
     return CFStringCreateWithCharactersNoCopy(alloc, pathStr, end >= pathStr ? end - pathStr : 0, alloc);
 }
 
+#if !TARGET_OS_LINUX && !defined(__i386__) && !defined(__arm__) && !defined(__aarch64__)
 static CFMutableStringRef resolveAbsoluteURLStringBuffer(CFAllocatorRef alloc, CFStringRef relString, UInt32 relFlags, const CFRange *relRanges, CFStringRef baseString, UInt32 baseFlags, const CFRange *baseRanges, UniChar *buf)
 {
     CFStringAppendBuffer appendBuffer;
@@ -2700,6 +2705,145 @@ static CFMutableStringRef resolveAbsoluteURLString(CFAllocatorRef alloc, CFStrin
         return ( result );
     }
 }
+#else
+static CFMutableStringRef resolveAbsoluteURLString(CFAllocatorRef alloc, CFStringRef relString, UInt32 relFlags, const CFRange *relRanges, CFStringRef baseString, UInt32 baseFlags, const CFRange *baseRanges) {
+    CFMutableStringRef newString = CFStringCreateMutable(alloc, 0);
+    CFIndex bufLen = CFStringGetLength(baseString) + CFStringGetLength(relString); // Overkill, but guarantees we never allocate again
+    UniChar *buf = (UniChar *)CFAllocatorAllocate(alloc, bufLen * sizeof(UniChar), 0);
+    CFRange rg;
+    
+    rg = _rangeForComponent(baseFlags, baseRanges, HAS_SCHEME);
+    if (rg.location != kCFNotFound) {
+        CFStringGetCharacters(baseString, rg, buf);
+        CFStringAppendCharacters(newString, buf, rg.length);
+        CFStringAppendCString(newString, ":", kCFStringEncodingASCII);
+    }
+
+    if (relFlags & NET_LOCATION_MASK) {
+        CFStringAppend(newString, relString);
+    } else {
+        CFStringAppendCString(newString, "//", kCFStringEncodingASCII);
+        rg = _netLocationRange(baseFlags, baseRanges);
+        if (rg.location != kCFNotFound) {
+            CFStringGetCharacters(baseString, rg, buf);
+            CFStringAppendCharacters(newString, buf, rg.length);
+        }
+
+        if (relFlags & HAS_PATH) {
+            CFRange relPathRg = _rangeForComponent(relFlags, relRanges, HAS_PATH);
+            CFRange basePathRg = _rangeForComponent(baseFlags, baseRanges, HAS_PATH);
+            CFStringRef newPath;
+            Boolean useRelPath = false;
+            Boolean useBasePath = false;
+            if (basePathRg.location == kCFNotFound) {
+                useRelPath = true;
+            } else if (relPathRg.length == 0) {
+                useBasePath = true;
+            } else if (CFStringGetCharacterAtIndex(relString, relPathRg.location) == '/') {
+                useRelPath = true;
+            } else if (basePathRg.location == kCFNotFound || basePathRg.length == 0) {
+                useRelPath = true;
+            }
+            if (useRelPath) {
+                newPath = CFStringCreateWithSubstring(alloc, relString, relPathRg);
+            } else if (useBasePath) {
+                newPath = CFStringCreateWithSubstring(alloc, baseString, basePathRg);
+            } else {
+                // #warning FIXME - Get rid of this allocation
+                UniChar *newPathBuf = (UniChar *)CFAllocatorAllocate(alloc, sizeof(UniChar) * (relPathRg.length + basePathRg.length + 1), 0);
+                UniChar *idx, *end;
+                CFStringGetCharacters(baseString, basePathRg, newPathBuf);
+                idx = newPathBuf + basePathRg.length - 1;
+                while (idx != newPathBuf && *idx != '/') idx --;
+                if (*idx == '/') idx ++;
+                CFStringGetCharacters(relString, relPathRg, idx);
+                end = idx + relPathRg.length;
+                *end = 0;
+                newPath = _resolvedPath(newPathBuf, end, '/', false, false, alloc);
+            }
+            /* Under Win32 absolute path can begin with letter
+             * so we have to add one '/' to the newString
+             * (Sergey Zubarev)
+             */
+             // No - the input strings here are URL path strings, not Win32 paths.
+             // Absolute paths should have had a '/' prepended before this point.
+             // I have removed Sergey Zubarev's change and left his comment (and
+             // this one) as a record. - REW, 1/5/2004
+            
+            // if the relative URL does not begin with a slash and
+            // the base does not end with a slash, add a slash
+            if ((basePathRg.location == kCFNotFound || basePathRg.length == 0) && CFStringGetCharacterAtIndex(newPath, 0) != '/') {
+                CFStringAppendCString(newString, "/", kCFStringEncodingASCII);
+            }
+            
+            CFStringAppend(newString, newPath);
+            CFRelease(newPath);
+            rg.location = relPathRg.location + relPathRg.length;
+            rg.length = CFStringGetLength(relString);
+            if (rg.length > rg.location) {
+                rg.length -= rg.location;
+                CFStringGetCharacters(relString, rg, buf);
+                CFStringAppendCharacters(newString, buf, rg.length);
+            }
+        } else {
+            rg = _rangeForComponent(baseFlags, baseRanges, HAS_PATH);
+            if (rg.location != kCFNotFound) {
+                CFStringGetCharacters(baseString, rg, buf);
+                CFStringAppendCharacters(newString, buf, rg.length);
+            }
+
+            if (!(relFlags & RESOURCE_SPECIFIER_MASK)) {
+                // ???  Can this ever happen?
+                UInt32 rsrcFlag = _firstResourceSpecifierFlag(baseFlags);
+                if (rsrcFlag) {
+                    rg.location = _rangeForComponent(baseFlags, baseRanges, rsrcFlag).location;
+                    rg.length = CFStringGetLength(baseString) - rg.location;
+                    rg.location --; // To pick up the separator
+                    rg.length ++;
+                    CFStringGetCharacters(baseString, rg, buf);
+                    CFStringAppendCharacters(newString, buf, rg.length);
+                }
+            } else if (relFlags & HAS_PARAMETERS) {
+                rg = _rangeForComponent(relFlags, relRanges, HAS_PARAMETERS);
+                rg.location --; // To get the semicolon that starts the parameters
+                rg.length = CFStringGetLength(relString) - rg.location;
+                CFStringGetCharacters(relString, rg, buf);
+                CFStringAppendCharacters(newString, buf, rg.length);
+            } else {
+                // Sigh; we have to resolve these against one another
+                rg = _rangeForComponent(baseFlags, baseRanges, HAS_PARAMETERS);
+                if (rg.location != kCFNotFound) {
+                    CFStringAppendCString(newString, ";", kCFStringEncodingASCII);
+                    CFStringGetCharacters(baseString, rg, buf);
+                    CFStringAppendCharacters(newString, buf, rg.length);
+                }
+                rg = _rangeForComponent(relFlags, relRanges, HAS_QUERY);
+                if (rg.location != kCFNotFound) {
+                    CFStringAppendCString(newString, "?", kCFStringEncodingASCII);
+                    CFStringGetCharacters(relString, rg, buf);
+                    CFStringAppendCharacters(newString, buf, rg.length);
+                } else {
+                    rg = _rangeForComponent(baseFlags, baseRanges, HAS_QUERY);
+                    if (rg.location != kCFNotFound) {
+                        CFStringAppendCString(newString, "?", kCFStringEncodingASCII);
+                        CFStringGetCharacters(baseString, rg, buf);
+                        CFStringAppendCharacters(newString, buf, rg.length);
+                    }
+                }
+                // Only the relative portion of the URL can supply the fragment; otherwise, what would be in the relativeURL?
+                rg = _rangeForComponent(relFlags, relRanges, HAS_FRAGMENT);
+                if (rg.location != kCFNotFound) {
+                    CFStringAppendCString(newString, "#", kCFStringEncodingASCII);
+                    CFStringGetCharacters(relString, rg, buf);
+                    CFStringAppendCharacters(newString, buf, rg.length);
+                }
+            }
+        }
+    }
+    CFAllocatorDeallocate(alloc, buf);
+    return newString;
+}
+#endif
 
 CFURLRef CFURLCopyAbsoluteURL(CFURLRef  relativeURL) {
     CFURLRef  anURL, base;
@@ -4920,7 +5064,6 @@ CFURLRef CFURLCreateFilePathURL(CFAllocatorRef alloc, CFURLRef url, CFErrorRef *
 	}
 	if ( fsPath ) {
 	    CFStringRef urlPath = _replacePathIllegalCharacters( fsPath, alloc, true );
-            
             CFStringAppendBuffer appendBuffer;
             CFStringInitAppendBuffer(alloc, &appendBuffer);
             CFStringAppendStringToAppendBuffer(&appendBuffer, CFSTR(FILE_PREFIX));
