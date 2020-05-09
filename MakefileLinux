@@ -55,8 +55,8 @@ $(OBJBASE)/%.o: %.m $(INTERMEDIATE_HFILES)
 	$(CC) $(STYLE_CFLAGS) $(CFLAGS) $< -o $@
 
 $(OBJBASE)/libCoreFoundation.a: $(addprefix $(OBJBASE)/,$(OBJECTS))
-	$(AR) cru libCoreFoundation.a $^
-	$(RANLIB) libCoreFoundation.a
+	$(AR) cru $(OBJBASE)/libCoreFoundation.a $^
+	$(RANLIB) $(OBJBASE)/libCoreFoundation.a
 
 $(OBJBASE)/libCoreFoundation.so: $(addprefix $(OBJBASE)/,$(OBJECTS))
 	$(CC) $(STYLE_LFLAGS) $(LFLAGS) $^ -L/usr/local/lib $(LIBS) -o $(OBJBASE)/libCoreFoundation.so

@@ -127,11 +127,14 @@ __private_extern__ CFIndex __CFActiveProcessorCount();
 
 #if defined(__i386__) || defined(__x86_64__)
     #if defined(__GNUC__)
+	#undef  HALT
         #define HALT do {asm __volatile__("int3"); kill(getpid(), 9); } while (0)
     #elif defined(_MSC_VER)
+	#undef  HALT
         #define HALT do { DebugBreak(); abort(); } while (0)
     #else
-        #error Compiler not supported
+	#undef  HALT
+        #define HALT exit(-1)
     #endif
 #endif
 
