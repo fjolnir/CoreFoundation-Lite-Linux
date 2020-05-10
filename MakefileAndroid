@@ -27,7 +27,7 @@ CC = $(HOME)/Downloads/android-ndk-r21b/toolchains/llvm/prebuilt/darwin-x86_64/b
 AR = $(HOME)/Downloads/android-ndk-r21b/toolchains/x86_64-4.9/prebuilt/darwin-x86_64/bin/x86_64-linux-android-ar
 RANLIB = $(HOME)/Downloads/android-ndk-r21b/toolchains/x86_64-4.9/prebuilt/darwin-x86_64/bin/x86_64-linux-android-ranlib
 
-CFLAGS=-c -x c -fblocks -fpic -pipe -std=gnu11 -Wno-trigraphs -fexceptions -DCF_BUILDING_CF=1 -DDEPLOYMENT_TARGET_LINUX=1 -DMAC_OS_X_VERSION_MAX_ALLOWED=$(MAX_MACOSX_VERSION) -DU_SHOW_DRAFT_API=1 -DU_SHOW_CPLUSPLUS_API=0 -DOSSpinLock=pthread_mutex_t -DOS_SPINLOCK_INIT=PTHREAD_MUTEX_INITIALIZER -DOSSpinLockLock=pthread_mutex_lock -DOSSpinLockUnlock=pthread_mutex_unlock -I$(HOME)/Downloads/android-ndk-r21b/x86_64_prefix/include -I$(OBJBASE) -I$(OBJBASE)/CoreFoundation -DVERSION=$(VERSION) -include CoreFoundation_Prefix.h
+CFLAGS=-c -x c -fblocks -fpic -pipe -std=gnu11 -Wno-trigraphs -fexceptions -DCF_BUILDING_CF=1 -D_ANDROID=1 -DDEPLOYMENT_TARGET_LINUX=1 -DMAC_OS_X_VERSION_MAX_ALLOWED=$(MAX_MACOSX_VERSION) -DU_SHOW_DRAFT_API=1 -DU_SHOW_CPLUSPLUS_API=0 -DOSSpinLock=pthread_mutex_t -DOS_SPINLOCK_INIT=PTHREAD_MUTEX_INITIALIZER -DOSSpinLockLock=pthread_mutex_lock -DOSSpinLockUnlock=pthread_mutex_unlock -I$(HOME)/Downloads/android-ndk-r21b/x86_64_prefix/include -I$(OBJBASE) -I$(OBJBASE)/CoreFoundation -DVERSION=$(VERSION) -include CoreFoundation_Prefix.h
 
 LFLAGS=-shared -fpic -Wl,--no-undefined,-soname,libCoreFoundation.so
 

@@ -306,7 +306,7 @@ extern UniChar __CFCharToUniCharTable[256];
 
 
 #if defined(CF_INLINE)
-#if defined(__i386__) || defined(__arm__) || defined(__aarch64__)
+#if (defined(__i386__) || defined(__arm__) || defined(__aarch64__)) && defined(_ANDROID)
 CF_INLINE const UniChar *CFStringGetCharactersPtrFromInlineBuffer(CFStringInlineBuffer *buf, CFRange desiredRange) {
     if ((desiredRange.location < 0) || ((desiredRange.location + desiredRange.length) > buf->rangeToBuffer.length)) return NULL;
 
