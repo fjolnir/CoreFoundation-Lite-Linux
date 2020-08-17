@@ -1,15 +1,15 @@
 /*
- * Copyright (c) 2012 Apple Inc. All rights reserved.
+ * Copyright (c) 2015 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
- * 
+ *
  * This file contains Original Code and/or Modifications of Original Code
  * as defined in and that are subject to the Apple Public Source License
  * Version 2.0 (the 'License'). You may not use this file except in
  * compliance with the License. Please obtain a copy of the License at
  * http://www.opensource.apple.com/apsl/ and read it before using this
  * file.
- * 
+ *
  * The Original Code and all software distributed under the License are
  * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
  * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
@@ -17,12 +17,12 @@
  * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
  * Please see the License for the specific language governing rights and
  * limitations under the License.
- * 
+ *
  * @APPLE_LICENSE_HEADER_END@
  */
 
 /*	CFXMLTree.c
-	Copyright (c) 1999-2012, Apple Inc. All rights reserved.
+	Copyright (c) 1999-2014, Apple Inc. All rights reserved.
 	Responsibility: David Smith
 */
 
@@ -55,7 +55,7 @@ CFXMLNodeRef CFXMLTreeGetNode(CFXMLTreeRef xmlNode) {
 }
 
 // We will probably ultimately want to export this under some public API name
-__private_extern__ Boolean CFXMLTreeEqual(CFXMLTreeRef xmlTree1, CFXMLTreeRef xmlTree2) {
+CF_PRIVATE Boolean CFXMLTreeEqual(CFXMLTreeRef xmlTree1, CFXMLTreeRef xmlTree2) {
     CFXMLNodeRef node1, node2;
     CFXMLTreeRef child1, child2;
     if (CFTreeGetChildCount(xmlTree1) != CFTreeGetChildCount(xmlTree2)) return false;
@@ -101,7 +101,7 @@ static void _CFAppendXML(CFMutableStringRef str, CFXMLTreeRef tree) {
     _CFAppendXMLEpilog(str, tree);
 }
 
-__private_extern__ void appendQuotedString(CFMutableStringRef str, CFStringRef strToQuote) {
+CF_PRIVATE void appendQuotedString(CFMutableStringRef str, CFStringRef strToQuote) {
     char quoteChar = CFStringFindWithOptions(strToQuote, CFSTR("\""), CFRangeMake(0, CFStringGetLength(strToQuote)), 0, NULL) ? '\'' : '\"';
     CFStringAppendFormat(str, NULL, CFSTR("%c%@%c"), quoteChar, strToQuote, quoteChar);
 }
@@ -158,7 +158,7 @@ static void _CFAppendXMLProlog(CFMutableStringRef str, const CFXMLTreeRef tree) 
             if (data->dataString) {
                 CFStringAppendFormat(str, NULL, CFSTR("<?%@ %@?>"), CFXMLNodeGetString(CFXMLTreeGetNode(tree)), data->dataString);
             } else {
-                CFStringAppendFormat(str, NULL, CFSTR("<?%@?>"));
+                CFStringAppendFormat(str, NULL, CFSTR("<?%@?>"), CFXMLNodeGetString(CFXMLTreeGetNode(tree)));
             }
             break;
         }

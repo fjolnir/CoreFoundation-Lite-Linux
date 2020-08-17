@@ -55,6 +55,7 @@ Once you have the dependencies in place, build CFLite using the Linux Makefile:
 This will create and install these files:
 
 /usr/local/lib/libCoreFoundation.so
+/usr/local/lib/libCoreFoundation.a
 /usr/local/include/CoreFoundation/<header files>
 /usr/local/include/TargetConditionals.h
 /usr/local/share/CoreFoundation/<resource files>

@@ -1,15 +1,15 @@
 /*
- * Copyright (c) 2012 Apple Inc. All rights reserved.
+ * Copyright (c) 2015 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
- * 
+ *
  * This file contains Original Code and/or Modifications of Original Code
  * as defined in and that are subject to the Apple Public Source License
  * Version 2.0 (the 'License'). You may not use this file except in
  * compliance with the License. Please obtain a copy of the License at
  * http://www.opensource.apple.com/apsl/ and read it before using this
  * file.
- * 
+ *
  * The Original Code and all software distributed under the License are
  * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
  * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
@@ -17,12 +17,12 @@
  * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
  * Please see the License for the specific language governing rights and
  * limitations under the License.
- * 
+ *
  * @APPLE_LICENSE_HEADER_END@
  */
 
 /*	CFStringEncodingConverter.c
-	Copyright (c) 1998-2012, Apple Inc. All rights reserved.
+	Copyright (c) 1998-2014, Apple Inc. All rights reserved.
 	Responsibility: Aki Inoue
 */
 
@@ -598,7 +598,7 @@ static const _CFEncodingConverter *__CFGetConverter(uint32_t encoding) {
     const _CFEncodingConverter **commonConverterSlot = NULL;
     static _CFEncodingConverter *commonConverters[3] = {NULL, NULL, NULL}; // UTF8, MacRoman/WinLatin1, and the default encoding*
     static CFMutableDictionaryRef mappingTable = NULL;
-    static CFSpinLock_t lock = CFSpinLockInit;
+    static OSSpinLock lock = OS_SPINLOCK_INIT;
 
     switch (encoding) {
 	case kCFStringEncodingUTF8: commonConverterSlot = (const _CFEncodingConverter **)&(commonConverters[0]); break;
@@ -616,15 +616,15 @@ static const _CFEncodingConverter *__CFGetConverter(uint32_t encoding) {
 	default: if (CFStringGetSystemEncoding() == encoding) commonConverterSlot = (const _CFEncodingConverter **)&(commonConverters[2]); break;
     }
 
-    __CFSpinLock(&lock);
+    OSSpinLockLock(&lock);
     converter = ((NULL == commonConverterSlot) ? ((NULL == mappingTable) ? NULL : (const _CFEncodingConverter *)CFDictionaryGetValue(mappingTable, (const void *)(uintptr_t)encoding)) : *commonConverterSlot);
-    __CFSpinUnlock(&lock);
+    OSSpinLockUnlock(&lock);
 
     if (NULL == converter) {
         const CFStringEncodingConverter *definition = __CFStringEncodingConverterGetDefinition(encoding);
 
         if (NULL != definition) {
-            __CFSpinLock(&lock);
+            OSSpinLockLock(&lock);
             converter = ((NULL == commonConverterSlot) ? ((NULL == mappingTable) ? NULL : (const _CFEncodingConverter *)CFDictionaryGetValue(mappingTable, (const void *)(uintptr_t)encoding)) : *commonConverterSlot);
 
             if (NULL == converter) {
@@ -638,7 +638,7 @@ static const _CFEncodingConverter *__CFGetConverter(uint32_t encoding) {
 		    *commonConverterSlot = converter;
 		}
             }
-            __CFSpinUnlock(&lock);
+            OSSpinLockUnlock(&lock);
         }
     }
 
@@ -768,7 +768,13 @@ uint32_t CFStringEncodingUnicodeToBytes(uint32_t encoding, uint32_t flags, const
                         CFIndex localUsedLen;
 
                         localUsedByteLen = 0;
-                        while ((usedLen < numChars) && !localUsedByteLen && (localUsedLen = TO_BYTE_FALLBACK(converter, characters + usedLen, numChars - usedLen, NULL, 0, &localUsedByteLen))) usedLen += localUsedLen;
+                        // after the buffer is full, we still try out all the rest of the characters
+                        // if all characters cannot be converted, we mark the result as insufficient output buffer
+                        while ((usedLen < numChars) && !localUsedByteLen && (localUsedLen = TO_BYTE_FALLBACK(converter, characters + usedLen, numChars - usedLen, NULL, 0, &localUsedByteLen))) {
+                            if (localUsedByteLen == 0) {
+                                usedLen += localUsedLen;
+                            }
+                        }
                     }
                     if (usedLen < numChars) theResult = kCFStringEncodingInsufficientOutputBufferLength;
                     break;
@@ -797,7 +803,11 @@ uint32_t CFStringEncodingUnicodeToBytes(uint32_t encoding, uint32_t flags, const
                 CFIndex localUsedLen;
 
                 localUsedByteLen = 0;
-                while ((usedLen < numChars) && !localUsedByteLen && (localUsedLen = TO_BYTE_FALLBACK(converter, characters + usedLen, numChars - usedLen, NULL, 0, &localUsedByteLen))) usedLen += localUsedLen;
+                while ((usedLen < numChars) && !localUsedByteLen && (localUsedLen = TO_BYTE_FALLBACK(converter, characters + usedLen, numChars - usedLen, NULL, 0, &localUsedByteLen))) {
+                    if (!localUsedByteLen) {
+                        usedLen += localUsedLen;
+                    }
+                }
             }
             if (usedLen < numChars) theResult = kCFStringEncodingInsufficientOutputBufferLength;
         }
@@ -853,11 +863,11 @@ uint32_t CFStringEncodingBytesToUnicode(uint32_t encoding, uint32_t flags, const
     return theResult;
 }
 
-__private_extern__ bool CFStringEncodingIsValidEncoding(uint32_t encoding) {
+CF_PRIVATE bool CFStringEncodingIsValidEncoding(uint32_t encoding) {
     return (CFStringEncodingGetConverter(encoding) ? true : false);
 }
 
-__private_extern__ CFIndex CFStringEncodingCharLengthForBytes(uint32_t encoding, uint32_t flags, const uint8_t *bytes, CFIndex numBytes) {
+CF_PRIVATE CFIndex CFStringEncodingCharLengthForBytes(uint32_t encoding, uint32_t flags, const uint8_t *bytes, CFIndex numBytes) {
     const _CFEncodingConverter *converter = __CFGetConverter(encoding);
 
     if (converter) {
@@ -901,7 +911,7 @@ __private_extern__ CFIndex CFStringEncodingCharLengthForBytes(uint32_t encoding,
     return 0;
 }
 
-__private_extern__ CFIndex CFStringEncodingByteLengthForCharacters(uint32_t encoding, uint32_t flags, const UniChar *characters, CFIndex numChars) {
+CF_PRIVATE CFIndex CFStringEncodingByteLengthForCharacters(uint32_t encoding, uint32_t flags, const UniChar *characters, CFIndex numChars) {
     const _CFEncodingConverter *converter = __CFGetConverter(encoding);
 
     if (converter) {
@@ -925,7 +935,7 @@ __private_extern__ CFIndex CFStringEncodingByteLengthForCharacters(uint32_t enco
     return 0;
 }
 
-__private_extern__ void CFStringEncodingRegisterFallbackProcedures(uint32_t encoding, CFStringEncodingToBytesFallbackProc toBytes, CFStringEncodingToUnicodeFallbackProc toUnicode) {
+void CFStringEncodingRegisterFallbackProcedures(uint32_t encoding, CFStringEncodingToBytesFallbackProc toBytes, CFStringEncodingToUnicodeFallbackProc toUnicode) {
     _CFEncodingConverter *converter = (_CFEncodingConverter *)__CFGetConverter(encoding);
 
     if (NULL != converter) {
@@ -936,7 +946,7 @@ __private_extern__ void CFStringEncodingRegisterFallbackProcedures(uint32_t enco
     }
 }
 
-__private_extern__ const CFStringEncodingConverter *CFStringEncodingGetConverter(uint32_t encoding) {
+CF_PRIVATE const CFStringEncodingConverter *CFStringEncodingGetConverter(uint32_t encoding) {
     const _CFEncodingConverter *converter = __CFGetConverter(encoding);
 
     return ((NULL == converter) ? NULL : converter->definition);
@@ -984,7 +994,7 @@ static void __CFStringEncodingFliterDupes(CFStringEncoding *encodings, CFIndex n
     }
 }
 
-__private_extern__ const CFStringEncoding *CFStringEncodingListOfAvailableEncodings(void) {
+CF_PRIVATE const CFStringEncoding *CFStringEncodingListOfAvailableEncodings(void) {
     static const CFStringEncoding *encodings = NULL;
 
     if (NULL == encodings) {

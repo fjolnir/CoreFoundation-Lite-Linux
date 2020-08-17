@@ -1,15 +1,15 @@
 /*
- * Copyright (c) 2012 Apple Inc. All rights reserved.
+ * Copyright (c) 2015 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
- * 
+ *
  * This file contains Original Code and/or Modifications of Original Code
  * as defined in and that are subject to the Apple Public Source License
  * Version 2.0 (the 'License'). You may not use this file except in
  * compliance with the License. Please obtain a copy of the License at
  * http://www.opensource.apple.com/apsl/ and read it before using this
  * file.
- * 
+ *
  * The Original Code and all software distributed under the License are
  * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
  * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
@@ -17,12 +17,12 @@
  * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
  * Please see the License for the specific language governing rights and
  * limitations under the License.
- * 
+ *
  * @APPLE_LICENSE_HEADER_END@
  */
 
 /*	CFBasicHashFindBucket.m
-	Copyright (c) 2009-2012, Apple Inc. All rights reserved.
+	Copyright (c) 2009-2014, Apple Inc. All rights reserved.
 	Responsibility: Christopher Kane
 */
 
@@ -132,7 +132,7 @@ FIND_BUCKET_NAME (CFConstBasicHashRef ht, uintptr_t stack_key
             if (__CFBasicHashSubABOne == curr_key) curr_key = ~0UL;
 #if FIND_BUCKET_FOR_INDIRECT_KEY
             // curr_key holds the value coming in here
-            curr_key = ht->callbacks->getIndirectKey(ht, curr_key);
+            curr_key = __CFBasicHashGetIndirectKey(ht, curr_key);
 #endif
             if (curr_key == stack_key || ((!hashes || hashes[probe] == hash_code) && __CFBasicHashTestEqualKey(ht, curr_key, stack_key))) {
                 COCOA_HASHTABLE_PROBING_END(ht, idx + 1);

@@ -1,15 +1,15 @@
 /*
- * Copyright (c) 2012 Apple Inc. All rights reserved.
+ * Copyright (c) 2015 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
- * 
+ *
  * This file contains Original Code and/or Modifications of Original Code
  * as defined in and that are subject to the Apple Public Source License
  * Version 2.0 (the 'License'). You may not use this file except in
  * compliance with the License. Please obtain a copy of the License at
  * http://www.opensource.apple.com/apsl/ and read it before using this
  * file.
- * 
+ *
  * The Original Code and all software distributed under the License are
  * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
  * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
@@ -17,12 +17,12 @@
  * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
  * Please see the License for the specific language governing rights and
  * limitations under the License.
- * 
+ *
  * @APPLE_LICENSE_HEADER_END@
  */
 
 /*  CFBurstTrie.c
-    Copyright (c) 2008-2012, Apple Inc. All rights reserved.
+    Copyright (c) 2008-2014, Apple Inc. All rights reserved.
     Responsibility: Jennifer Moore
 */
 
@@ -282,7 +282,7 @@ typedef struct _TraverseContext {
     void (*callback)(void*, const UInt8*, uint32_t, uint32_t);
 } TraverseContext;
 
-bool foundKey(void *context, const uint8_t *key, uint32_t payload, bool exact)
+static bool foundKey(void *context, const uint8_t *key, uint32_t payload, bool exact)
 {
     if (context != NULL) {
         TraverseContext *ctx = (TraverseContext *)context;
@@ -317,8 +317,8 @@ static void finalizeCFBurstTrieList(ListNodeRef node);
 static int nodeWeightCompare(const void *a, const void *b);
 static int nodeStringCompare(const void *a, const void *b);
 
-bool foundKey(void *context, const uint8_t *key, uint32_t payload, bool exact);
-bool containsKey(void *context, const uint8_t *key, uint32_t payload, bool exact);
+static bool foundKey(void *context, const uint8_t *key, uint32_t payload, bool exact);
+static bool containsKey(void *context, const uint8_t *key, uint32_t payload, bool exact);
 
 static CFIndex burstTrieConvertCharactersToUTF8(UniChar *chars, CFIndex numChars, UInt8 *buffer);
 
@@ -329,27 +329,6 @@ static Boolean areMapCursorsEqual(const CompactMapCursor *lhs, const CompactMapC
 static void traverseFromMapCursor(CFBurstTrieRef trie, CompactMapCursor *cursor, UInt8* bytes, uint32_t capacity, uint32_t length, Boolean *stop, void *ctx, CFBurstTrieTraversalCallback callback);
 static Boolean getMapCursorPayloadFromPackedPageEntry(PageEntryPacked *entry, const CompactMapCursor *cursor, uint32_t *payload);
 static Boolean getMapCursorPayloadFromPageEntry(PageEntry *entry, const CompactMapCursor *cursor, uint32_t *payload);
-
-#if 0
-#pragma mark -
-#pragma mark Core Foundation boilerplate
-#endif
-
-static const void *_CFBurstTrieRetainCallback(CFAllocatorRef allocator, const void *value) {
-    CFBurstTrieRetain((CFBurstTrieRef)value);
-    return value;
-}
-
-static void _CFBurstTrieReleaseCallback(CFAllocatorRef allocator, const void *value) {
-    CFBurstTrieRelease((CFBurstTrieRef)value);
-}
-
-const CFDictionaryValueCallBacks kCFBurstTrieValueCallbacks = {0, _CFBurstTrieRetainCallback, _CFBurstTrieReleaseCallback, NULL, NULL};
-
-#if 0
-#pragma mark -
-#pragma mark Public Interface
-#endif
 
 CFBurstTrieRef CFBurstTrieCreateWithOptions(CFDictionaryRef options) {
     CFBurstTrieRef trie = NULL;
@@ -437,6 +416,8 @@ CFBurstTrieRef CFBurstTrieCreateFromFile(CFStringRef path) {
         // On Windows, the file being mapped must stay open as long as the map exists. Don't close it early. Other platforms close it here.
         close(fd);
 #endif
+    } else {
+        close(fd);
     }
     return trie;
 }
@@ -1202,7 +1183,7 @@ static void traverseCFBurstTrieWithCursor(CFBurstTrieRef trie, const uint8_t *pr
         }
     } else {    
         TrieCursor csr;
-        csr.next = ((unsigned long)&trie->root)|TrieKind;
+        csr.next = ((uintptr_t)&trie->root)|TrieKind;
         csr.prefix = prefix;
         csr.prefixlen = prefixLen;
         csr.key[0] = 0;
@@ -1891,7 +1872,7 @@ static void serializeCFBurstTrieList(CFBurstTrieRef trie, ListNodeRef listNode, 
     }
     
     char _buffer[MAX_BUFFER_SIZE];
-    char bufferSize = (sizeof(Page) + size * (sizeof(PageEntryPacked) + MAX_STRING_SIZE));
+    size_t bufferSize = (sizeof(Page) + size * (sizeof(PageEntryPacked) + MAX_STRING_SIZE));
     char *buffer = bufferSize < MAX_BUFFER_SIZE ? _buffer : (char *) malloc(bufferSize);
     
     Page *page = (Page *)buffer;
@@ -2058,7 +2039,7 @@ static int nodeStringCompare(const void *a, const void *b) {
     return result;
 }
 
-bool containsKey(void *context, const uint8_t *key, uint32_t payload, bool exact)
+static bool containsKey(void *context, const uint8_t *key, uint32_t payload, bool exact)
 {
     uint32_t *ctx = (uint32_t *)context;
     if (exact) *ctx = payload;

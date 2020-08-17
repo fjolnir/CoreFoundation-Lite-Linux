@@ -1,15 +1,15 @@
 /*
- * Copyright (c) 2012 Apple Inc. All rights reserved.
+ * Copyright (c) 2015 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
- * 
+ *
  * This file contains Original Code and/or Modifications of Original Code
  * as defined in and that are subject to the Apple Public Source License
  * Version 2.0 (the 'License'). You may not use this file except in
  * compliance with the License. Please obtain a copy of the License at
  * http://www.opensource.apple.com/apsl/ and read it before using this
  * file.
- * 
+ *
  * The Original Code and all software distributed under the License are
  * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
  * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
@@ -17,12 +17,12 @@
  * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
  * Please see the License for the specific language governing rights and
  * limitations under the License.
- * 
+ *
  * @APPLE_LICENSE_HEADER_END@
  */
 
 /*	CFMachPort.c
-	Copyright (c) 1998-2012, Apple Inc. All rights reserved.
+	Copyright (c) 1998-2014, Apple Inc. All rights reserved.
 	Responsibility: Christopher Kane
 */
 
@@ -33,6 +33,7 @@
 #include <dispatch/private.h>
 #include <mach/mach.h>
 #include <dlfcn.h>
+#include <stdio.h>
 #include "CFInternal.h"
 
 
@@ -45,7 +46,10 @@
 static dispatch_queue_t _CFMachPortQueue() {
     static volatile dispatch_queue_t __CFMachPortQueue = NULL;
     static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{ __CFMachPortQueue = dispatch_queue_create("CFMachPort Queue", NULL); });
+    dispatch_once(&onceToken, ^{
+        dispatch_queue_attr_t dqattr = dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_BACKGROUND, 0);
+        __CFMachPortQueue = dispatch_queue_create("com.apple.CFMachPort", dqattr);
+    });
     return __CFMachPortQueue;
 }
 
@@ -62,14 +66,14 @@ struct __CFMachPort {
     int32_t _state;
     mach_port_t _port;                          /* immutable */
     dispatch_source_t _dsrc;                    /* protected by _lock */
-    dispatch_source_t _dsrc2;                   /* protected by _lock */
     dispatch_semaphore_t _dsrc_sem;             /* protected by _lock */
-    dispatch_semaphore_t _dsrc2_sem;            /* protected by _lock */
     CFMachPortInvalidationCallBack _icallout;   /* protected by _lock */
     CFRunLoopSourceRef _source;                 /* immutable, once created */
     CFMachPortCallBack _callout;                /* immutable */
     CFMachPortContext _context;                 /* immutable */
-    CFSpinLock_t _lock;
+    CFLock_t _lock;
+    const void *(*retain)(const void *info); // use these to store the real callbacks
+    void        (*release)(const void *info);
 };
 
 /* Bit 1 in the base reserved bits is used for has-receive-ref state */
@@ -95,11 +99,12 @@ CF_INLINE void __CFMachPortSetHasSend(CFMachPortRef mp) {
 CF_INLINE Boolean __CFMachPortHasSend2(CFMachPortRef mp) {
     return (Boolean)__CFBitfieldGetValue(((const CFRuntimeBase *)mp)->_cfinfo[CF_INFO_BITS], 3, 3);
 }
-
+/*
+ //TODO we should either use this or delete the entire Send2 flag concept
 CF_INLINE void __CFMachPortSetHasSend2(CFMachPortRef mp) {
     __CFBitfieldSetValue(((CFRuntimeBase *)mp)->_cfinfo[CF_INFO_BITS], 3, 3, 1);
 }
-
+*/
 CF_INLINE Boolean __CFMachPortIsValid(CFMachPortRef mp) {
     return kCFMachPortStateReady == mp->_state;
 }
@@ -131,7 +136,7 @@ static CFStringRef __CFMachPortCopyDescription(CFTypeRef cf) {
     Dl_info info;
     void *addr = mp->_callout;
     const char *name = (dladdr(addr, &info) && info.dli_saddr == addr && info.dli_sname) ? info.dli_sname : "???";
-    CFStringRef result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("<CFMachPort %p [%p]>{valid = %s, port = %p, source = %p, callout = %s (%p), context = %@}"), cf, CFGetAllocator(mp), (__CFMachPortIsValid(mp) ? "Yes" : "No"), mp->_port, mp->_source, name, addr, contextDesc);
+    CFStringRef result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("<CFMachPort %p [%p]>{valid = %s, port = %x, source = %p, callout = %s (%p), context = %@}"), cf, CFGetAllocator(mp), (__CFMachPortIsValid(mp) ? "Yes" : "No"), mp->_port, mp->_source, name, addr, contextDesc);
     if (NULL != contextDesc) {
         CFRelease(contextDesc);
     }
@@ -142,22 +147,23 @@ static CFStringRef __CFMachPortCopyDescription(CFTypeRef cf) {
 CF_INLINE void __CFMachPortInvalidateLocked(CFRunLoopSourceRef source, CFMachPortRef mp) {
     CFMachPortInvalidationCallBack cb = mp->_icallout;
     if (cb) {
-        __CFSpinUnlock(&mp->_lock);
+        __CFUnlock(&mp->_lock);
         cb(mp, mp->_context.info);
-        __CFSpinLock(&mp->_lock);
+        __CFLock(&mp->_lock);
     }
     if (NULL != source) {
-        __CFSpinUnlock(&mp->_lock);
+        __CFUnlock(&mp->_lock);
         CFRunLoopSourceInvalidate(source);
         CFRelease(source);
-        __CFSpinLock(&mp->_lock);
+        __CFLock(&mp->_lock);
     }
     void *info = mp->_context.info;
+    void (*release)(const void *info) = mp->release;
     mp->_context.info = NULL;
-    if (mp->_context.release) {
-        __CFSpinUnlock(&mp->_lock);
-        mp->_context.release(info);
-        __CFSpinLock(&mp->_lock);
+    if (release) {
+        __CFUnlock(&mp->_lock);
+        release(info);
+        __CFLock(&mp->_lock);
     }
     mp->_state = kCFMachPortStateInvalid;
     OSMemoryBarrier();
@@ -168,7 +174,7 @@ static void __CFMachPortDeallocate(CFTypeRef cf) {
     CFMachPortRef mp = (CFMachPortRef)cf;
 
     // CFMachPortRef is invalid before we get here, except under GC
-    __CFSpinLock(&mp->_lock);
+    __CFLock(&mp->_lock);
     CFRunLoopSourceRef source = NULL;
     Boolean wasReady = (mp->_state == kCFMachPortStateReady);
     if (wasReady) {
@@ -177,10 +183,6 @@ static void __CFMachPortDeallocate(CFTypeRef cf) {
         if (mp->_dsrc) {
             dispatch_source_cancel(mp->_dsrc);
             mp->_dsrc = NULL;
-        }
-        if (mp->_dsrc2) {
-            dispatch_source_cancel(mp->_dsrc2);
-            mp->_dsrc2 = NULL;
         }
         source = mp->_source;
         mp->_source = NULL;
@@ -193,21 +195,15 @@ static void __CFMachPortDeallocate(CFTypeRef cf) {
     // hand ownership of the port and semaphores to the block below
     mach_port_t port = mp->_port;
     dispatch_semaphore_t sem1 = mp->_dsrc_sem;
-    dispatch_semaphore_t sem2 = mp->_dsrc2_sem;
     Boolean doSend2 = __CFMachPortHasSend2(mp), doSend = __CFMachPortHasSend(mp), doReceive = __CFMachPortHasReceive(mp);
 
-    __CFSpinUnlock(&mp->_lock);
+    __CFUnlock(&mp->_lock);
 
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
+    dispatch_async(__CFDispatchQueueGetGenericBackground(), ^{
             if (sem1) {
                 dispatch_semaphore_wait(sem1, DISPATCH_TIME_FOREVER);
                 // immediate release is only safe if dispatch_semaphore_signal() does not touch the semaphore after doing the signal bit
                 dispatch_release(sem1);
-            }
-            if (sem2) {
-                dispatch_semaphore_wait(sem2, DISPATCH_TIME_FOREVER);
-                // immediate release is only safe if dispatch_semaphore_signal() does not touch the semaphore after doing the signal bit
-                dispatch_release(sem2);
             }
 
             // MUST deallocate the send right FIRST if necessary,
@@ -226,7 +222,7 @@ static void __CFMachPortDeallocate(CFTypeRef cf) {
 }
 
 // This lock protects __CFAllMachPorts. Take before any instance-specific lock.
-static CFSpinLock_t __CFAllMachPortsLock = CFSpinLockInit;
+static CFLock_t __CFAllMachPortsLock = CFLockInit;
 
 #if AVOID_WEAK_COLLECTIONS
 static CFMutableArrayRef __CFAllMachPorts = NULL;
@@ -234,6 +230,7 @@ static CFMutableArrayRef __CFAllMachPorts = NULL;
 static __CFPointerArray *__CFAllMachPorts = nil;
 #endif
 
+static Boolean __CFMachPortCheck(mach_port_t) __attribute__((noinline));
 static Boolean __CFMachPortCheck(mach_port_t port) {
     mach_port_type_t type = 0;
     kern_return_t ret = mach_port_type(mach_task_self(), port, &type);
@@ -241,7 +238,7 @@ static Boolean __CFMachPortCheck(mach_port_t port) {
 }
 
 static void __CFMachPortChecker(Boolean fromTimer) {
-    __CFSpinLock(&__CFAllMachPortsLock); // take this lock first before any instance-specific lock
+    __CFLock(&__CFAllMachPortsLock); // take this lock first before any instance-specific lock
 #if AVOID_WEAK_COLLECTIONS
     for (CFIndex idx = 0, cnt = __CFAllMachPorts ? CFArrayGetCount(__CFAllMachPorts) : 0; idx < cnt; idx++) {
         CFMachPortRef mp = (CFMachPortRef)CFArrayGetValueAtIndex(__CFAllMachPorts, idx);
@@ -255,27 +252,23 @@ static void __CFMachPortChecker(Boolean fromTimer) {
             CFRunLoopSourceRef source = NULL;
             Boolean wasReady = (mp->_state == kCFMachPortStateReady);
             if (wasReady) {
-                __CFSpinLock(&mp->_lock); // take this lock second
+                __CFLock(&mp->_lock); // take this lock second
                 mp->_state = kCFMachPortStateInvalidating;
                 OSMemoryBarrier();
                 if (mp->_dsrc) {
                     dispatch_source_cancel(mp->_dsrc);
                     mp->_dsrc = NULL;
                 }
-                if (mp->_dsrc2) {
-                    dispatch_source_cancel(mp->_dsrc2);
-                    mp->_dsrc2 = NULL;
-                }
                 source = mp->_source;
                 mp->_source = NULL;
                 CFRetain(mp);
-                __CFSpinUnlock(&mp->_lock);
+                __CFUnlock(&mp->_lock);
                 dispatch_async(dispatch_get_main_queue(), ^{
                     // We can grab the mach port-specific spin lock here since we're no longer on the same thread as the one taking the all mach ports spin lock.
                     // But be sure to release it during callouts
-                    __CFSpinLock(&mp->_lock);
+                    __CFLock(&mp->_lock);
                     __CFMachPortInvalidateLocked(source, mp);
-                    __CFSpinUnlock(&mp->_lock);
+                    __CFUnlock(&mp->_lock);
                     CFRelease(mp);
                 });
             }
@@ -291,7 +284,7 @@ static void __CFMachPortChecker(Boolean fromTimer) {
 #if !AVOID_WEAK_COLLECTIONS
     [__CFAllMachPorts compact];
 #endif
-    __CFSpinUnlock(&__CFAllMachPortsLock);
+    __CFUnlock(&__CFAllMachPortsLock);
 };
 
 
@@ -309,11 +302,9 @@ static const CFRuntimeClass __CFMachPortClass = {
     __CFMachPortCopyDescription
 };
 
-__private_extern__ void __CFMachPortInitialize(void) {
-    __kCFMachPortTypeID = _CFRuntimeRegisterClass(&__CFMachPortClass);
-}
-
 CFTypeID CFMachPortGetTypeID(void) {
+    static dispatch_once_t initOnce;
+    dispatch_once(&initOnce, ^{ __kCFMachPortTypeID = _CFRuntimeRegisterClass(&__CFMachPortClass); });
     return __kCFMachPortTypeID;
 }
 
@@ -334,21 +325,20 @@ CFMachPortRef _CFMachPortCreateWithPort2(CFAllocatorRef allocator, mach_port_t p
         return NULL;
     }
 
+#if 0
     static dispatch_source_t timerSource = NULL;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        uint64_t nanos = 63 * 1000 * 1000 * 1000ULL;
-        uint64_t leeway = 9 * 1000ULL;
-        timerSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, _CFMachPortQueue());
-        dispatch_source_set_timer(timerSource, dispatch_time(DISPATCH_TIME_NOW, nanos), nanos, leeway);
+        timerSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_INTERVAL, 60 * 1000 /* milliseconds */, 0, _CFMachPortQueue());
         dispatch_source_set_event_handler(timerSource, ^{
             __CFMachPortChecker(true);
         });
         dispatch_resume(timerSource);
     });
+#endif
 
     CFMachPortRef mp = NULL;
-    __CFSpinLock(&__CFAllMachPortsLock);
+    __CFLock(&__CFAllMachPortsLock);
 #if AVOID_WEAK_COLLECTIONS
     for (CFIndex idx = 0, cnt = __CFAllMachPorts ? CFArrayGetCount(__CFAllMachPorts) : 0; idx < cnt; idx++) {
         CFMachPortRef p = (CFMachPortRef)CFArrayGetValueAtIndex(__CFAllMachPorts, idx);
@@ -368,7 +358,7 @@ CFMachPortRef _CFMachPortCreateWithPort2(CFAllocatorRef allocator, mach_port_t p
         }
     }
 #endif
-    __CFSpinUnlock(&__CFAllMachPortsLock);
+    __CFUnlock(&__CFAllMachPortsLock);
     
     if (!mp) {
         CFIndex size = sizeof(struct __CFMachPort) - sizeof(CFRuntimeBase);
@@ -378,23 +368,27 @@ CFMachPortRef _CFMachPortCreateWithPort2(CFAllocatorRef allocator, mach_port_t p
         }
         memory->_port = port;
         memory->_dsrc = NULL;
-        memory->_dsrc2 = NULL;
         memory->_dsrc_sem = NULL;
-        memory->_dsrc2_sem = NULL;
         memory->_icallout = NULL;
         memory->_source = NULL;
         memory->_context.info = NULL;
         memory->_context.retain = NULL;
         memory->_context.release = NULL;
         memory->_context.copyDescription = NULL;
+        memory->retain = NULL;
+        memory->release = NULL;
         memory->_callout = callout;
-        memory->_lock = CFSpinLockInit;
+        memory->_lock = CFLockInit;
         if (NULL != context) {
             objc_memmove_collectable(&memory->_context, context, sizeof(CFMachPortContext));
             memory->_context.info = context->retain ? (void *)context->retain(context->info) : context->info;
+            memory->retain = context->retain;
+            memory->release = context->release;
+	    memory->_context.retain = (void *)0xAAAAAAAAAACCCAAA;
+            memory->_context.release = (void *)0xAAAAAAAAAABBBAAA;
         }
         memory->_state = kCFMachPortStateReady;
-        __CFSpinLock(&__CFAllMachPortsLock);
+        __CFLock(&__CFAllMachPortsLock);
     #if AVOID_WEAK_COLLECTIONS
         if (!__CFAllMachPorts) __CFAllMachPorts = CFArrayCreateMutable(kCFAllocatorSystemDefault, 0, &kCFTypeArrayCallBacks);
         CFArrayAppendValue(__CFAllMachPorts, memory);
@@ -402,32 +396,21 @@ CFMachPortRef _CFMachPortCreateWithPort2(CFAllocatorRef allocator, mach_port_t p
         if (!__CFAllMachPorts) __CFAllMachPorts = [[__CFPointerArray alloc] initWithOptions:(kCFUseCollectableAllocator ? CFPointerFunctionsZeroingWeakMemory : CFPointerFunctionsStrongMemory)];
         [__CFAllMachPorts addPointer:memory];
     #endif
-        __CFSpinUnlock(&__CFAllMachPortsLock);
+        __CFUnlock(&__CFAllMachPortsLock);
         mp = memory;
         if (shouldFreeInfo) *shouldFreeInfo = false;
 
         if (type & MACH_PORT_TYPE_SEND_RIGHTS) {
             dispatch_source_t theSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_MACH_SEND, port, DISPATCH_MACH_SEND_DEAD, _CFMachPortQueue());
-            dispatch_source_set_cancel_handler(theSource, ^{
-                dispatch_release(theSource);
-            });
-            dispatch_source_set_event_handler(theSource, ^{
-                __CFMachPortChecker(false);
-            });
-            memory->_dsrc = theSource;
-            dispatch_resume(theSource);
-        }
-        if (memory->_dsrc) {
-            dispatch_source_t source = memory->_dsrc; // put these in locals so they are fully copied into the block
-            dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-            memory->_dsrc_sem = sem;
-            dispatch_source_set_cancel_handler(memory->_dsrc, ^{ dispatch_semaphore_signal(sem); dispatch_release(source); });
-        }
-        if (memory->_dsrc2) {
-            dispatch_source_t source = memory->_dsrc2;
-            dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-            memory->_dsrc2_sem = sem;
-            dispatch_source_set_cancel_handler(memory->_dsrc2, ^{ dispatch_semaphore_signal(sem); dispatch_release(source); });
+	    if (theSource) {
+                dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+                dispatch_retain(sem);
+                dispatch_source_set_cancel_handler(theSource, ^{ dispatch_semaphore_signal(sem); dispatch_release(sem); dispatch_release(theSource); });
+                dispatch_source_set_event_handler(theSource, ^{ __CFMachPortChecker(false); });
+                memory->_dsrc_sem = sem;
+                memory->_dsrc = theSource;
+                dispatch_resume(theSource);
+	    }
         }
     }
     
@@ -471,8 +454,8 @@ void CFMachPortInvalidate(CFMachPortRef mp) {
     CFRetain(mp);
     CFRunLoopSourceRef source = NULL;
     Boolean wasReady = false;
-    __CFSpinLock(&__CFAllMachPortsLock); // take this lock first
-    __CFSpinLock(&mp->_lock);
+    __CFLock(&__CFAllMachPortsLock); // take this lock first
+    __CFLock(&mp->_lock);
     wasReady = (mp->_state == kCFMachPortStateReady);
     if (wasReady) {
         mp->_state = kCFMachPortStateInvalidating;
@@ -498,19 +481,15 @@ void CFMachPortInvalidate(CFMachPortRef mp) {
             dispatch_source_cancel(mp->_dsrc);
             mp->_dsrc = NULL;
         }
-        if (mp->_dsrc2) {
-            dispatch_source_cancel(mp->_dsrc2);
-            mp->_dsrc2 = NULL;
-        }
         source = mp->_source;
         mp->_source = NULL;
     }
-    __CFSpinUnlock(&mp->_lock);
-    __CFSpinUnlock(&__CFAllMachPortsLock); // release this lock last
+    __CFUnlock(&mp->_lock);
+    __CFUnlock(&__CFAllMachPortsLock); // release this lock last
     if (wasReady) {
-        __CFSpinLock(&mp->_lock);
+        __CFLock(&mp->_lock);
         __CFMachPortInvalidateLocked(source, mp);
-        __CFSpinUnlock(&mp->_lock);
+        __CFUnlock(&mp->_lock);
     }
     CFRelease(mp);
 }
@@ -542,9 +521,9 @@ Boolean CFMachPortIsValid(CFMachPortRef mp) {
 
 CFMachPortInvalidationCallBack CFMachPortGetInvalidationCallBack(CFMachPortRef mp) {
     __CFGenericValidateType(mp, CFMachPortGetTypeID());
-    __CFSpinLock(&mp->_lock);
+    __CFLock(&mp->_lock);
     CFMachPortInvalidationCallBack cb = mp->_icallout;
-    __CFSpinUnlock(&mp->_lock);
+    __CFUnlock(&mp->_lock);
     return cb;
 }
 
@@ -553,17 +532,24 @@ CFMachPortInvalidationCallBack CFMachPortGetInvalidationCallBack(CFMachPortRef m
 void CFMachPortSetInvalidationCallBack(CFMachPortRef mp, CFMachPortInvalidationCallBack callout) {
     CHECK_FOR_FORK_RET();
     __CFGenericValidateType(mp, CFMachPortGetTypeID());
-    __CFSpinLock(&mp->_lock);
+    if (callout) {
+	mach_port_type_t type = 0;
+	kern_return_t ret = mach_port_type(mach_task_self(), mp->_port, &type);
+	if (KERN_SUCCESS != ret || 0 == (type & MACH_PORT_TYPE_SEND_RIGHTS)) {
+	    CFLog(kCFLogLevelError, CFSTR("*** WARNING: CFMachPortSetInvalidationCallBack() called on a CFMachPort with a Mach port (0x%x) which does not have any send rights.  This is not going to work.  Callback function: %p"), mp->_port, callout);
+	}
+    }
+    __CFLock(&mp->_lock);
     if (__CFMachPortIsValid(mp) || !callout) {
         mp->_icallout = callout;
     } else if (!mp->_icallout && callout) {
-        __CFSpinUnlock(&mp->_lock);
+        __CFUnlock(&mp->_lock);
         callout(mp, mp->_context.info);
-        __CFSpinLock(&mp->_lock);
+        __CFLock(&mp->_lock);
     } else {
         CFLog(kCFLogLevelWarning, CFSTR("CFMachPortSetInvalidationCallBack(): attempt to set invalidation callback (%p) on invalid CFMachPort (%p) thwarted"), callout, mp);
     }
-    __CFSpinUnlock(&mp->_lock);
+    __CFUnlock(&mp->_lock);
 }
 
 /* Returns the number of messages queued for a receive port. */
@@ -581,39 +567,42 @@ static mach_port_t __CFMachPortGetPort(void *info) {
     return mp->_port;
 }
 
-static void *__CFMachPortPerform(void *msg, CFIndex size, CFAllocatorRef allocator, void *info) {
+CF_PRIVATE void *__CFMachPortPerform(void *msg, CFIndex size, CFAllocatorRef allocator, void *info) {
     CHECK_FOR_FORK_RET(NULL);
     CFMachPortRef mp = (CFMachPortRef)info;
-    __CFSpinLock(&mp->_lock);
+    __CFLock(&mp->_lock);
     Boolean isValid = __CFMachPortIsValid(mp);
     void *context_info = NULL;
     void (*context_release)(const void *) = NULL;
     if (isValid) {
-        if (mp->_context.retain) {
-            context_info = (void *)mp->_context.retain(mp->_context.info);
-            context_release = mp->_context.release;
+        if (mp->retain) {
+            context_info = (void *)mp->retain(mp->_context.info);
+            context_release = mp->release;
         } else {
             context_info = mp->_context.info;
         }
     }
-    __CFSpinUnlock(&mp->_lock);
-    if (!isValid) return NULL;
+    __CFUnlock(&mp->_lock);
+    if (isValid) {
+        mp->_callout(mp, msg, size, context_info);
 
-    mp->_callout(mp, msg, size, context_info);
-
-    if (context_release) {
-        context_release(context_info);
+        if (context_release) {
+            context_release(context_info);
+        }
+        CHECK_FOR_FORK_RET(NULL);
     }
-    CHECK_FOR_FORK_RET(NULL);
     return NULL;
 }
 
+
+    
+    
 CFRunLoopSourceRef CFMachPortCreateRunLoopSource(CFAllocatorRef allocator, CFMachPortRef mp, CFIndex order) {
     CHECK_FOR_FORK_RET(NULL);
     __CFGenericValidateType(mp, CFMachPortGetTypeID());
     if (!CFMachPortIsValid(mp)) return NULL;
     CFRunLoopSourceRef result = NULL;
-    __CFSpinLock(&mp->_lock);
+    __CFLock(&mp->_lock);
     if (__CFMachPortIsValid(mp)) {
         if (NULL != mp->_source && !CFRunLoopSourceIsValid(mp->_source)) {
             CFRelease(mp->_source);
@@ -634,7 +623,7 @@ CFRunLoopSourceRef CFMachPortCreateRunLoopSource(CFAllocatorRef allocator, CFMac
         }
         result = mp->_source ? (CFRunLoopSourceRef)CFRetain(mp->_source) : NULL;
     }
-    __CFSpinUnlock(&mp->_lock);
+    __CFUnlock(&mp->_lock);
     return result;
 }
 

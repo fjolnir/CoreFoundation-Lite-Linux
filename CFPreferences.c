@@ -1,15 +1,15 @@
 /*
- * Copyright (c) 2012 Apple Inc. All rights reserved.
+ * Copyright (c) 2015 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
- * 
+ *
  * This file contains Original Code and/or Modifications of Original Code
  * as defined in and that are subject to the Apple Public Source License
  * Version 2.0 (the 'License'). You may not use this file except in
  * compliance with the License. Please obtain a copy of the License at
  * http://www.opensource.apple.com/apsl/ and read it before using this
  * file.
- * 
+ *
  * The Original Code and all software distributed under the License are
  * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
  * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
@@ -17,12 +17,12 @@
  * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
  * Please see the License for the specific language governing rights and
  * limitations under the License.
- * 
+ *
  * @APPLE_LICENSE_HEADER_END@
  */
 
 /*	CFPreferences.c
-	Copyright (c) 1998-2012, Apple Inc. All rights reserved.
+	Copyright (c) 1998-2014, Apple Inc. All rights reserved.
 	Responsibility: David Smith
 */
 
@@ -67,7 +67,7 @@ CONST_STRING_DECL(kCFPreferencesCurrentUser, "kCFPreferencesCurrentUser")
 
 
 static CFAllocatorRef _preferencesAllocator = NULL;
-__private_extern__ CFAllocatorRef __CFPreferencesAllocator(void) {
+CF_PRIVATE CFAllocatorRef __CFPreferencesAllocator(void) {
     if (!_preferencesAllocator) {
 #if DEBUG_PREFERENCES_MEMORY
         _preferencesAllocator = CFCountingAllocatorCreate(NULL);
@@ -103,7 +103,7 @@ CF_EXPORT void CFPreferencesDumpMem(void) {
 // If this becomes available in a header (<rdar://problem/4943036>), I need to pull this out
 int gethostuuid(unsigned char *uuid_buf, const struct timespec *timeoutp);
 
-__private_extern__ CFStringRef _CFGetHostUUIDString(void) {
+CF_PRIVATE CFStringRef _CFGetHostUUIDString(void) {
     static CFStringRef __hostUUIDString = NULL;
     
     if (!__hostUUIDString) {
@@ -131,7 +131,7 @@ __private_extern__ CFStringRef _CFGetHostUUIDString(void) {
     return __hostUUIDString;
 }
 
-__private_extern__ CFStringRef _CFPreferencesGetByHostIdentifierString(void) {
+CF_PRIVATE CFStringRef _CFPreferencesGetByHostIdentifierString(void) {
     static CFStringRef __byHostIdentifierString = NULL;
 
     if (!__byHostIdentifierString) {
@@ -164,7 +164,7 @@ __private_extern__ CFStringRef _CFPreferencesGetByHostIdentifierString(void) {
 
 #else
 
-__private_extern__ CFStringRef _CFPreferencesGetByHostIdentifierString(void) {
+CF_PRIVATE CFStringRef _CFPreferencesGetByHostIdentifierString(void) {
     return CFSTR("");
 }
 
@@ -244,7 +244,7 @@ Boolean __CFPreferencesShouldWriteXML(void) {
     return __CFPreferencesWritesXML;
 }
 
-static CFSpinLock_t domainCacheLock = CFSpinLockInit;
+static CFLock_t domainCacheLock = CFLockInit;
 static CFMutableDictionaryRef  domainCache = NULL; // mutable
 
 // Public API
@@ -424,11 +424,6 @@ static const CFRuntimeClass __CFPreferencesDomainClass = {
     __CFPreferencesDomainCopyDescription
 };
 
-/* This is called once at CFInitialize() time. */
-__private_extern__ void __CFPreferencesDomainInitialize(void) {
-    __kCFPreferencesDomainTypeID = _CFRuntimeRegisterClass(&__CFPreferencesDomainClass);
-}
-
 /* We spend a lot of time constructing these prefixes; we should cache.  REW, 7/19/99 */
 static CFStringRef  _CFPreferencesCachePrefixForUserHost(CFStringRef  userName, CFStringRef  hostName) {
     if (userName == kCFPreferencesAnyUser && hostName == kCFPreferencesAnyHost) {
@@ -525,13 +520,13 @@ CFPreferencesDomainRef _CFPreferencesStandardDomain(CFStringRef  domainName, CFS
     CFStringRef  domainKey;
     Boolean shouldReleaseDomain = true;
      domainKey = _CFPreferencesStandardDomainCacheKey(domainName, userName, hostName);
-    __CFSpinLock(&domainCacheLock);
+    __CFLock(&domainCacheLock);
     if (!domainCache) {
         CFAllocatorRef alloc = __CFPreferencesAllocator();
         domainCache = CFDictionaryCreateMutable(alloc, 0, & kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     }
     domain = (CFPreferencesDomainRef)CFDictionaryGetValue(domainCache, domainKey);
-    __CFSpinUnlock(&domainCacheLock);
+    __CFUnlock(&domainCacheLock);
     if (!domain) {
         // Domain's not in the cache; load from permanent storage
 		CFURLRef  theURL = _CFPreferencesURLForStandardDomain(domainName, userName, hostName);
@@ -543,7 +538,7 @@ CFPreferencesDomainRef _CFPreferencesStandardDomain(CFStringRef  domainName, CFS
             }
             CFRelease(theURL);
         }
-	__CFSpinLock(&domainCacheLock);
+	__CFLock(&domainCacheLock);
         if (domain && domainCache) {
             // We've just synthesized a domain & we're about to throw it in the domain cache. The problem is that someone else might have gotten in here behind our backs, so we can't just blindly set the domain (3021920). We'll need to check to see if this happened, and compensate.
             CFPreferencesDomainRef checkDomain = (CFPreferencesDomainRef)CFDictionaryGetValue(domainCache, domainKey);
@@ -559,7 +554,7 @@ CFPreferencesDomainRef _CFPreferencesStandardDomain(CFStringRef  domainName, CFS
             }
             if(shouldReleaseDomain) CFRelease(domain);
         }
-	__CFSpinUnlock(&domainCacheLock);
+	__CFUnlock(&domainCacheLock);
     }
     CFRelease(domainKey);
     return domain;
@@ -571,27 +566,27 @@ static void __CFPreferencesPerformSynchronize(const void *key, const void *value
     if (!_CFPreferencesDomainSynchronize(domain)) *cumulativeResult = false;
 }
 
-__private_extern__ Boolean _CFSynchronizeDomainCache(void) {
+CF_PRIVATE Boolean _CFSynchronizeDomainCache(void) {
     Boolean result = true;
-    __CFSpinLock(&domainCacheLock);
+    __CFLock(&domainCacheLock);
     if (domainCache) {
         CFDictionaryApplyFunction(domainCache, __CFPreferencesPerformSynchronize, &result);
     }
-    __CFSpinUnlock(&domainCacheLock);
+    __CFUnlock(&domainCacheLock);
     return result;
 }
 
-__private_extern__ void _CFPreferencesPurgeDomainCache(void) {
+CF_PRIVATE void _CFPreferencesPurgeDomainCache(void) {
     _CFSynchronizeDomainCache();
-    __CFSpinLock(&domainCacheLock);
+    __CFLock(&domainCacheLock);
     if (domainCache) {
         CFRelease(domainCache);
         domainCache = NULL;
     }
-    __CFSpinUnlock(&domainCacheLock);
+    __CFUnlock(&domainCacheLock);
 }
 
-__private_extern__ CFArrayRef  _CFPreferencesCreateDomainList(CFStringRef  userName, CFStringRef  hostName) {
+CF_PRIVATE CFArrayRef  _CFPreferencesCreateDomainList(CFStringRef  userName, CFStringRef  hostName) {
     CFAllocatorRef prefAlloc = __CFPreferencesAllocator();
     CFArrayRef  domains;
     CFMutableArrayRef  marray;
@@ -642,16 +637,16 @@ __private_extern__ CFArrayRef  _CFPreferencesCreateDomainList(CFStringRef  userN
     CFRelease(suffix);
     
     // Now add any domains added in the cache; delete any that have been deleted in the cache
-    __CFSpinLock(&domainCacheLock);
+    __CFLock(&domainCacheLock);
     if (!domainCache) {
-        __CFSpinUnlock(&domainCacheLock);
+        __CFUnlock(&domainCacheLock);
         return marray;
     }
     cnt = CFDictionaryGetCount(domainCache);
     cachedDomainKeys = (CFStringRef *)CFAllocatorAllocate(prefAlloc, 2 * cnt * sizeof(CFStringRef), 0);
     cachedDomains = (CFPreferencesDomainRef *)(cachedDomainKeys + cnt);
     CFDictionaryGetKeysAndValues(domainCache, (const void **)cachedDomainKeys, (const void **)cachedDomains);
-    __CFSpinUnlock(&domainCacheLock);
+    __CFUnlock(&domainCacheLock);
     suffix = _CFPreferencesCachePrefixForUserHost(userName, hostName);
     suffixLen = CFStringGetLength(suffix);
     
@@ -694,6 +689,8 @@ __private_extern__ CFArrayRef  _CFPreferencesCreateDomainList(CFStringRef  userN
 //
 
 CFPreferencesDomainRef _CFPreferencesDomainCreate(CFTypeRef  context, const _CFPreferencesDomainCallBacks *callBacks) {
+    static dispatch_once_t initOnce;
+    dispatch_once(&initOnce, ^{ __kCFPreferencesDomainTypeID = _CFRuntimeRegisterClass(&__CFPreferencesDomainClass); });
     CFAllocatorRef alloc = __CFPreferencesAllocator();
     CFPreferencesDomainRef newDomain;
     CFAssert(callBacks != NULL && callBacks->createDomain != NULL && callBacks->freeDomain != NULL && callBacks->fetchValue != NULL && callBacks->writeValue != NULL, __kCFLogAssertion, "Cannot create a domain with NULL callbacks");
@@ -715,17 +712,17 @@ void _CFPreferencesDomainSet(CFPreferencesDomainRef domain, CFStringRef  key, CF
     domain->_callBacks->writeValue(domain->_context, domain->_domain, key, value);
 }
 
-__private_extern__ Boolean _CFPreferencesDomainSynchronize(CFPreferencesDomainRef domain) {
+CF_PRIVATE Boolean _CFPreferencesDomainSynchronize(CFPreferencesDomainRef domain) {
     return domain->_callBacks->synchronize(domain->_context, domain->_domain);
 }
 
-__private_extern__ void _CFPreferencesDomainSetIsWorldReadable(CFPreferencesDomainRef domain, Boolean isWorldReadable) {
+CF_PRIVATE void _CFPreferencesDomainSetIsWorldReadable(CFPreferencesDomainRef domain, Boolean isWorldReadable) {
     if (domain->_callBacks->setIsWorldReadable) {
         domain->_callBacks->setIsWorldReadable(domain->_context, domain->_domain, isWorldReadable);
     }
 }
 
-__private_extern__ void *_CFPreferencesDomainCopyDictFunc(CFPreferencesDomainRef domain) {
+CF_PRIVATE void *_CFPreferencesDomainCopyDictFunc(CFPreferencesDomainRef domain) {
     return domain->_callBacks->copyDomainDictionary;
 }
 

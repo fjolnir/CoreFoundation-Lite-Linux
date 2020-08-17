@@ -1,15 +1,15 @@
 /*
- * Copyright (c) 2012 Apple Inc. All rights reserved.
+ * Copyright (c) 2015 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
- * 
+ *
  * This file contains Original Code and/or Modifications of Original Code
  * as defined in and that are subject to the Apple Public Source License
  * Version 2.0 (the 'License'). You may not use this file except in
  * compliance with the License. Please obtain a copy of the License at
  * http://www.opensource.apple.com/apsl/ and read it before using this
  * file.
- * 
+ *
  * The Original Code and all software distributed under the License are
  * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
  * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
@@ -17,12 +17,12 @@
  * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
  * Please see the License for the specific language governing rights and
  * limitations under the License.
- * 
+ *
  * @APPLE_LICENSE_HEADER_END@
  */
 
 /*	CFData.c
-	Copyright (c) 1998-2012, Apple Inc. All rights reserved.
+	Copyright (c) 1998-2014, Apple Inc. All rights reserved.
 	Responsibility: Kevin Perry
 */
 
@@ -143,10 +143,6 @@ CF_INLINE void __CFDataSetCapacity(CFMutableDataRef data, CFIndex v) {
     /* for a CFData, _bytesNum == _capacity */
 }
 
-CF_INLINE CFIndex __CFDataNumBytesUsed(CFDataRef data) {
-    return data->_length;
-}
-
 CF_INLINE void __CFDataSetNumBytesUsed(CFMutableDataRef data, CFIndex v) {
     data->_length = v;
 }
@@ -195,7 +191,7 @@ static void __CFDataHandleOutOfMemory(CFTypeRef obj, CFIndex numBytes) {
     if(0 < numBytes && numBytes <= CFDATA_MAX_SIZE) {
 	msg = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("Attempt to allocate %ld bytes for NS/CFData failed"), numBytes);
     } else {
-	msg = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("Attempt to allocate %ld bytes for NS/CFData failed. Maximum size: %ld"), numBytes, CFDATA_MAX_SIZE);
+	msg = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("Attempt to allocate %ld bytes for NS/CFData failed. Maximum size: %lld"), numBytes, CFDATA_MAX_SIZE);
     }
     {
         CFLog(kCFLogLevelCritical, CFSTR("%@"), msg);
@@ -239,7 +235,7 @@ static CFStringRef __CFDataCopyDescription(CFTypeRef cf) {
     len = __CFDataLength(data);
     bytes = CFDataGetBytePtr(data);
     result = CFStringCreateMutable(CFGetAllocator(data), 0);
-    CFStringAppendFormat(result, NULL, CFSTR("<CFData %p [%p]>{length = %u, capacity = %u, bytes = 0x"), cf, CFGetAllocator(data), len, __CFDataCapacity(data));
+    CFStringAppendFormat(result, NULL, CFSTR("<CFData %p [%p]>{length = %lu, capacity = %lu, bytes = 0x"), cf, CFGetAllocator(data), (unsigned long)len, (unsigned long)__CFDataCapacity(data));
     if (24 < len) {
         for (idx = 0; idx < 16; idx += 4) {
 	    CFStringAppendFormat(result, NULL, CFSTR("%02x%02x%02x%02x"), bytes[idx], bytes[idx + 1], bytes[idx + 2], bytes[idx + 3]);
@@ -307,7 +303,7 @@ static void __CFDataDeallocate(CFTypeRef cf) {
 	CFAllocatorRef deallocator = data->_bytesDeallocator;
 	if (deallocator != NULL) {
 	    _CFAllocatorDeallocateGC(deallocator, data->_bytes);
-	    if (!_CFAllocatorIsGCRefZero(deallocator)) CFRelease(deallocator);
+	    CFRelease(deallocator);
 	    data->_bytes = NULL;
 	} else {
 	    if (__CFDataUseAllocator(data)) {
@@ -334,11 +330,9 @@ static const CFRuntimeClass __CFDataClass = {
     __CFDataCopyDescription
 };
 
-__private_extern__ void __CFDataInitialize(void) {
-    __kCFDataTypeID = _CFRuntimeRegisterClass(&__CFDataClass);
-}
-
 CFTypeID CFDataGetTypeID(void) {
+    static dispatch_once_t initOnce;
+    dispatch_once(&initOnce, ^{ __kCFDataTypeID = _CFRuntimeRegisterClass(&__CFDataClass); });
     return __kCFDataTypeID;
 }
 
@@ -364,7 +358,7 @@ static CFMutableDataRef __CFDataInit(CFAllocatorRef allocator, CFOptionFlags fla
     if (allocateInline) {
 	size += sizeof(uint8_t) * __CFDataNumBytesForCapacity(capacity) + sizeof(uint8_t) * 15;	// for 16-byte alignment fixup
     }
-    memory = (CFMutableDataRef)_CFRuntimeCreateInstance(allocator, __kCFDataTypeID, size, NULL);
+    memory = (CFMutableDataRef)_CFRuntimeCreateInstance(allocator, CFDataGetTypeID(), size, NULL);
     if (NULL == memory) {
 	return NULL;
     }
@@ -411,14 +405,14 @@ static CFMutableDataRef __CFDataInit(CFAllocatorRef allocator, CFOptionFlags fla
     if (noCopy) {
 	__CFAssignWithWriteBarrier((void **)&memory->_bytes, (uint8_t *)bytes);
 	if (finalize) {
-            if (_CFAllocatorIsGCRefZero(bytesDeallocator)) {
+            if ((0)) {
 	        memory->_bytesDeallocator = bytesDeallocator;
             } else {
-	        memory->_bytesDeallocator = (CFAllocatorRef)CFRetain(_CFConvertAllocatorToNonGCRefZeroEquivalent(bytesDeallocator));
+	        memory->_bytesDeallocator = (CFAllocatorRef)CFRetain(bytesDeallocator);
             }
 	}
-	if (CF_IS_COLLECTABLE_ALLOCATOR(bytesDeallocator) && !_CFAllocatorIsGCRefZero(bytesDeallocator)) {
-	    // When given a GC allocator which is not one of the GCRefZero ones as the deallocator, we assume that the no-copy memory is GC-allocated with a retain count of (at least) 1 and we should release it now instead of waiting until __CFDataDeallocate.
+	if (CF_IS_COLLECTABLE_ALLOCATOR(bytesDeallocator) && !(0)) {
+	    // we assume that the no-copy memory is GC-allocated with a retain count of (at least) 1 and we should release it now instead of waiting until __CFDataDeallocate.
 	    auto_zone_release(objc_collectableZone(), memory->_bytes);
 	}
 	__CFDataSetNumBytesUsed(memory, length);
@@ -470,8 +464,7 @@ CFMutableDataRef CFDataCreateMutable(CFAllocatorRef allocator, CFIndex capacity)
     // Do not allow magic allocator for now for mutable datas, because it
     // isn't remembered for proper handling later when growth of the buffer
     // has to occur.
-    Boolean wasMagic = _CFAllocatorIsGCRefZero(allocator);
-    if (0 == capacity) allocator = _CFConvertAllocatorToNonGCRefZeroEquivalent(allocator);
+    Boolean wasMagic = (0);
     CFMutableDataRef r = (CFMutableDataRef)__CFDataInit(allocator, (0 == capacity) ? kCFMutable : kCFFixedMutable, capacity, NULL, 0, NULL);
     if (wasMagic) CFMakeCollectable(r);
     return r;
@@ -481,35 +474,34 @@ CFMutableDataRef CFDataCreateMutableCopy(CFAllocatorRef allocator, CFIndex capac
     // Do not allow magic allocator for now for mutable datas, because it
     // isn't remembered for proper handling later when growth of the buffer
     // has to occur.
-    Boolean wasMagic = _CFAllocatorIsGCRefZero(allocator);
-    if (0 == capacity) allocator = _CFConvertAllocatorToNonGCRefZeroEquivalent(allocator);
+    Boolean wasMagic = (0);
     CFMutableDataRef r = (CFMutableDataRef) __CFDataInit(allocator, (0 == capacity) ? kCFMutable : kCFFixedMutable, capacity, CFDataGetBytePtr(data), CFDataGetLength(data), NULL);
     if (wasMagic) CFMakeCollectable(r);
     return r;
 }
 
 CFIndex CFDataGetLength(CFDataRef data) {
-    CF_OBJC_FUNCDISPATCHV(__kCFDataTypeID, CFIndex, (NSData *)data, length);
-    __CFGenericValidateType(data, __kCFDataTypeID);
+    CF_OBJC_FUNCDISPATCHV(CFDataGetTypeID(), CFIndex, (NSData *)data, length);
+    __CFGenericValidateType(data, CFDataGetTypeID());
     return __CFDataLength(data);
 }
 
 const uint8_t *CFDataGetBytePtr(CFDataRef data) {
-    CF_OBJC_FUNCDISPATCHV(__kCFDataTypeID, const uint8_t *, (NSData *)data, bytes);
-    __CFGenericValidateType(data, __kCFDataTypeID);
+    CF_OBJC_FUNCDISPATCHV(CFDataGetTypeID(), const uint8_t *, (NSData *)data, bytes);
+    __CFGenericValidateType(data, CFDataGetTypeID());
     // compaction: if inline, always do the computation.
     return __CFDataBytesInline(data) ? (uint8_t *)__CFDataInlineBytesPtr(data) : data->_bytes;
 }
 
 uint8_t *CFDataGetMutableBytePtr(CFMutableDataRef data) {
-    CF_OBJC_FUNCDISPATCHV(__kCFDataTypeID, uint8_t *, (NSMutableData *)data, mutableBytes);
+    CF_OBJC_FUNCDISPATCHV(CFDataGetTypeID(), uint8_t *, (NSMutableData *)data, mutableBytes);
     CFAssert1(__CFDataIsMutable(data), __kCFLogAssertion, "%s(): data is immutable", __PRETTY_FUNCTION__);
     // compaction: if inline, always do the computation.
     return __CFDataBytesInline(data) ? (uint8_t *)__CFDataInlineBytesPtr(data) : data->_bytes;
 }
 
 void CFDataGetBytes(CFDataRef data, CFRange range, uint8_t *buffer) {
-    CF_OBJC_FUNCDISPATCHV(__kCFDataTypeID, void, (NSData *)data, getBytes:(void *)buffer range:NSMakeRange(range.location, range.length));
+    CF_OBJC_FUNCDISPATCHV(CFDataGetTypeID(), void, (NSData *)data, getBytes:(void *)buffer range:NSMakeRange(range.location, range.length));
     __CFDataValidateRange(data, range, __PRETTY_FUNCTION__);
     memmove(buffer, CFDataGetBytePtr(data) + range.location, range.length);
 }
@@ -554,7 +546,7 @@ static void __CFDataGrow(CFMutableDataRef data, CFIndex numNewValues, Boolean cl
 void CFDataSetLength(CFMutableDataRef data, CFIndex newLength) {
     CFIndex oldLength, capacity;
     Boolean isGrowable;
-    CF_OBJC_FUNCDISPATCHV(__kCFDataTypeID, void, (NSMutableData *)data, setLength:(NSUInteger)newLength);
+    CF_OBJC_FUNCDISPATCHV(CFDataGetTypeID(), void, (NSMutableData *)data, setLength:(NSUInteger)newLength);
     CFAssert1(__CFDataIsMutable(data), __kCFLogAssertion, "%s(): data is immutable", __PRETTY_FUNCTION__);
     oldLength = __CFDataLength(data);
     capacity = __CFDataCapacity(data);
@@ -583,27 +575,27 @@ void CFDataSetLength(CFMutableDataRef data, CFIndex newLength) {
 }
 
 void CFDataIncreaseLength(CFMutableDataRef data, CFIndex extraLength) {
-    CF_OBJC_FUNCDISPATCHV(__kCFDataTypeID, void, (NSMutableData *)data, increaseLengthBy:(NSUInteger)extraLength);
+    CF_OBJC_FUNCDISPATCHV(CFDataGetTypeID(), void, (NSMutableData *)data, increaseLengthBy:(NSUInteger)extraLength);
     CFAssert1(__CFDataIsMutable(data), __kCFLogAssertion, "%s(): data is immutable", __PRETTY_FUNCTION__);
     if (extraLength < 0) HALT; // Avoid integer overflow.
     CFDataSetLength(data, __CFDataLength(data) + extraLength);
 }
 
 void CFDataAppendBytes(CFMutableDataRef data, const uint8_t *bytes, CFIndex length) {
-    CF_OBJC_FUNCDISPATCHV(__kCFDataTypeID, void, (NSMutableData *)data, appendBytes:(const void *)bytes length:(NSUInteger)length);
+    CF_OBJC_FUNCDISPATCHV(CFDataGetTypeID(), void, (NSMutableData *)data, appendBytes:(const void *)bytes length:(NSUInteger)length);
     CFAssert1(__CFDataIsMutable(data), __kCFLogAssertion, "%s(): data is immutable", __PRETTY_FUNCTION__);
     CFDataReplaceBytes(data, CFRangeMake(__CFDataLength(data), 0), bytes, length); 
 }
 
 void CFDataDeleteBytes(CFMutableDataRef data, CFRange range) {
-    CF_OBJC_FUNCDISPATCHV(__kCFDataTypeID, void, (NSMutableData *)data, replaceBytesInRange:NSMakeRange(range.location, range.length) withBytes:NULL length:0);
+    CF_OBJC_FUNCDISPATCHV(CFDataGetTypeID(), void, (NSMutableData *)data, replaceBytesInRange:NSMakeRange(range.location, range.length) withBytes:NULL length:0);
     CFAssert1(__CFDataIsMutable(data), __kCFLogAssertion, "%s(): data is immutable", __PRETTY_FUNCTION__);
     CFDataReplaceBytes(data, range, NULL, 0); 
 }
 
 void CFDataReplaceBytes(CFMutableDataRef data, CFRange range, const uint8_t *newBytes, CFIndex newLength) {
-    CF_OBJC_FUNCDISPATCHV(__kCFDataTypeID, void, (NSMutableData *)data, replaceBytesInRange:NSMakeRange(range.location, range.length) withBytes:(const void *)newBytes length:(NSUInteger)newLength);
-    __CFGenericValidateType(data, __kCFDataTypeID);
+    CF_OBJC_FUNCDISPATCHV(CFDataGetTypeID(), void, (NSMutableData *)data, replaceBytesInRange:NSMakeRange(range.location, range.length) withBytes:(const void *)newBytes length:(NSUInteger)newLength);
+    __CFGenericValidateType(data, CFDataGetTypeID());
     __CFDataValidateRange(data, range, __PRETTY_FUNCTION__);
     CFAssert1(__CFDataIsMutable(data), __kCFLogAssertion, "%s(): data is immutable", __PRETTY_FUNCTION__);
     CFAssert2(0 <= newLength, __kCFLogAssertion, "%s(): newLength (%d) cannot be less than zero", __PRETTY_FUNCTION__, newLength);
@@ -800,8 +792,8 @@ CFRange _CFDataFindBytes(CFDataRef data, CFDataRef dataToFind, CFRange searchRan
 
 CFRange CFDataFind(CFDataRef data, CFDataRef dataToFind, CFRange searchRange, CFDataSearchFlags compareOptions) {
     // No objc dispatch
-    __CFGenericValidateType(data, __kCFDataTypeID);
-    __CFGenericValidateType(dataToFind, __kCFDataTypeID);
+    __CFGenericValidateType(data, CFDataGetTypeID());
+    __CFGenericValidateType(dataToFind, CFDataGetTypeID());
     __CFDataValidateRange(data, searchRange, __PRETTY_FUNCTION__);
     
     return _CFDataFindBytes(data, dataToFind, searchRange, compareOptions);

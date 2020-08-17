@@ -1,15 +1,15 @@
 /*
- * Copyright (c) 2012 Apple Inc. All rights reserved.
+ * Copyright (c) 2015 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
- * 
+ *
  * This file contains Original Code and/or Modifications of Original Code
  * as defined in and that are subject to the Apple Public Source License
  * Version 2.0 (the 'License'). You may not use this file except in
  * compliance with the License. Please obtain a copy of the License at
  * http://www.opensource.apple.com/apsl/ and read it before using this
  * file.
- * 
+ *
  * The Original Code and all software distributed under the License are
  * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
  * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
@@ -17,12 +17,12 @@
  * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
  * Please see the License for the specific language governing rights and
  * limitations under the License.
- * 
+ *
  * @APPLE_LICENSE_HEADER_END@
  */
 
 /*	CFUserNotification.c
-	Copyright (c) 2000-2012, Apple Inc.  All rights reserved.
+	Copyright (c) 2000-2014, Apple Inc.  All rights reserved.
 	Original Author: Doug Davidson
 	Responsibility: Kevin Perry
 */
@@ -128,12 +128,9 @@ static const CFRuntimeClass __CFUserNotificationClass = {
     __CFUserNotificationCopyDescription
 };
 
-__private_extern__ void __CFUserNotificationInitialize(void) {
-    __kCFUserNotificationTypeID = _CFRuntimeRegisterClass(&__CFUserNotificationClass);
-}
-
 CFTypeID CFUserNotificationGetTypeID(void) {
-    if (_kCFRuntimeNotATypeID == __kCFUserNotificationTypeID) __CFUserNotificationInitialize();
+    static dispatch_once_t initOnce;
+    dispatch_once(&initOnce, ^{ __kCFUserNotificationTypeID = _CFRuntimeRegisterClass(&__CFUserNotificationClass); });
     return __kCFUserNotificationTypeID;
 }
 
@@ -225,7 +222,7 @@ static SInt32 _CFUserNotificationSendRequest(CFAllocatorRef allocator, CFStringR
     if (ERR_SUCCESS == retval && MACH_PORT_NULL != serverPort) {
         modifiedDictionary = _CFUserNotificationModifiedDictionary(allocator, dictionary, token, itimeout, _CFProcessNameString());
         if (modifiedDictionary) {
-            data = CFPropertyListCreateXMLData(allocator, modifiedDictionary);
+            data = CFPropertyListCreateData(allocator, modifiedDictionary, kCFPropertyListXMLFormat_v1_0, 0, NULL);
             if (data) {
                 size = sizeof(mach_msg_base_t) + ((CFDataGetLength(data) + 3) & (~0x3));
                 msg = (mach_msg_base_t *)CFAllocatorAllocate(kCFAllocatorSystemDefault, size, 0);
@@ -257,12 +254,17 @@ static SInt32 _CFUserNotificationSendRequest(CFAllocatorRef allocator, CFStringR
     return retval;
 }
 
+static SInt32 _getNextToken() {
+    static uint16_t tokenCounter = 0;
+    SInt32 token = ((getpid() << 16) | (tokenCounter++));
+    return token;
+}
+
 CFUserNotificationRef CFUserNotificationCreate(CFAllocatorRef allocator, CFTimeInterval timeout, CFOptionFlags flags, SInt32 *error, CFDictionaryRef dictionary) {
     CHECK_FOR_FORK();
     CFUserNotificationRef userNotification = NULL;
     SInt32 retval = ERR_SUCCESS;
-    static uint16_t tokenCounter = 0;
-    SInt32 token = ((getpid() << 16) | (tokenCounter++));
+    SInt32 token = _getNextToken();
     CFStringRef sessionID = (dictionary ? CFDictionaryGetValue(dictionary, kCFUserNotificationSessionIDKey) : NULL);
     mach_port_t replyPort = MACH_PORT_NULL;
 
@@ -300,7 +302,7 @@ static void _CFUserNotificationMachPortCallBack(CFMachPortRef port, void *m, CFI
     if (msg->header.msgh_size > sizeof(mach_msg_base_t)) {
         CFDataRef responseData = CFDataCreate(kCFAllocatorSystemDefault, (uint8_t *)msg + sizeof(mach_msg_base_t), msg->header.msgh_size - sizeof(mach_msg_base_t));
         if (responseData) {
-            userNotification->_responseDictionary = CFPropertyListCreateFromXMLData(kCFAllocatorSystemDefault, responseData, kCFPropertyListImmutable, NULL);
+            userNotification->_responseDictionary = CFPropertyListCreateWithData(kCFAllocatorSystemDefault, responseData, kCFPropertyListImmutable, NULL, NULL);
             CFRelease(responseData);
         }
     }
@@ -336,7 +338,7 @@ SInt32 CFUserNotificationReceiveResponse(CFUserNotificationRef userNotification,
                 if (msg->header.msgh_size > sizeof(mach_msg_base_t)) {
                     responseData = CFDataCreate(kCFAllocatorSystemDefault, (uint8_t *)msg + sizeof(mach_msg_base_t), msg->header.msgh_size - sizeof(mach_msg_base_t));
                     if (responseData) {
-                        userNotification->_responseDictionary = CFPropertyListCreateFromXMLData(kCFAllocatorSystemDefault, responseData, kCFPropertyListImmutable, NULL);
+                        userNotification->_responseDictionary = CFPropertyListCreateWithData(kCFAllocatorSystemDefault, responseData, kCFPropertyListImmutable, NULL, NULL);
                         CFRelease(responseData);
                     }
                 }
@@ -412,7 +414,6 @@ CFRunLoopSourceRef CFUserNotificationCreateRunLoopSource(CFAllocatorRef allocato
 
 SInt32 CFUserNotificationDisplayNotice(CFTimeInterval timeout, CFOptionFlags flags, CFURLRef iconURL, CFURLRef soundURL, CFURLRef localizationURL, CFStringRef alertHeader, CFStringRef alertMessage, CFStringRef defaultButtonTitle) {
     CHECK_FOR_FORK();
-    CFUserNotificationRef userNotification;
     SInt32 retval = ERR_SUCCESS;
     CFMutableDictionaryRef dict = CFDictionaryCreateMutable(kCFAllocatorSystemDefault, 0, &kCFCopyStringDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     if (iconURL) CFDictionaryAddValue(dict, kCFUserNotificationIconURLKey, iconURL);
@@ -421,8 +422,10 @@ SInt32 CFUserNotificationDisplayNotice(CFTimeInterval timeout, CFOptionFlags fla
     if (alertHeader) CFDictionaryAddValue(dict, kCFUserNotificationAlertHeaderKey, alertHeader);
     if (alertMessage) CFDictionaryAddValue(dict, kCFUserNotificationAlertMessageKey, alertMessage);
     if (defaultButtonTitle) CFDictionaryAddValue(dict, kCFUserNotificationDefaultButtonTitleKey, defaultButtonTitle);
-    userNotification = CFUserNotificationCreate(kCFAllocatorSystemDefault, timeout, flags, &retval, dict);
-    if (userNotification) CFRelease(userNotification);
+    retval = _CFUserNotificationSendRequest(__CFGetDefaultAllocator(), NULL, MACH_PORT_NULL, _getNextToken(), timeout, flags, dict);
+    if (ERR_SUCCESS != retval) {
+        CFUserNotificationLog(alertHeader, alertMessage);
+    }
     CFRelease(dict);
     return retval;
 }
