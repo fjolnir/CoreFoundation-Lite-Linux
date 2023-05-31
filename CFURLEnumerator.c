@@ -17,7 +17,11 @@
 #if TARGET_OS_MAC
 #include <sys/syslimits.h>
 #else
+#if defined(__linux__) || defined(__ANDROID__)
+#include <linux/limits.h>
+#else
 #include <sys/limits.h>
+#endif
 #endif
 
 extern const CFStringRef NSURLErrorKey;
