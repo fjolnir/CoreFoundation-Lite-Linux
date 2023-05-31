@@ -886,7 +886,7 @@ CF_PRIVATE Boolean __CFProcessIsRestricted() {
 CF_EXPORT bool kCFUseCollectableAllocator;
 bool kCFUseCollectableAllocator = false;
 
-CF_PRIVATE Boolean __CFProphylacticAutofsAccess = false;
+Boolean __CFProphylacticAutofsAccess = false;
 CF_PRIVATE Boolean __CFInitializing = 0;
 CF_PRIVATE Boolean __CFInitialized = 0;
 
