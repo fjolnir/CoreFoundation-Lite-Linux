@@ -1,15 +1,15 @@
 /*
- * Copyright (c) 2012 Apple Inc. All rights reserved.
+ * Copyright (c) 2015 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
- * 
+ *
  * This file contains Original Code and/or Modifications of Original Code
  * as defined in and that are subject to the Apple Public Source License
  * Version 2.0 (the 'License'). You may not use this file except in
  * compliance with the License. Please obtain a copy of the License at
  * http://www.opensource.apple.com/apsl/ and read it before using this
  * file.
- * 
+ *
  * The Original Code and all software distributed under the License are
  * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
  * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
@@ -17,12 +17,12 @@
  * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
  * Please see the License for the specific language governing rights and
  * limitations under the License.
- * 
+ *
  * @APPLE_LICENSE_HEADER_END@
  */
 
 /*	CFStringEncodingDatabase.c
-	Copyright (c) 2005-2012, Apple Inc. All rights reserved.
+	Copyright (c) 2005-2014, Apple Inc. All rights reserved.
 	Responsibility: Aki Inoue
 */
 
@@ -393,7 +393,7 @@ static inline CFIndex __CFGetEncodingIndex(CFStringEncoding encoding) {
     return kCFNotFound;
 }
 
-__private_extern__ uint16_t __CFStringEncodingGetWindowsCodePage(CFStringEncoding encoding) {
+CF_PRIVATE uint16_t __CFStringEncodingGetWindowsCodePage(CFStringEncoding encoding) {
     CFStringEncoding encodingBase = encoding & 0x0F00;
 
     if (0x0100 == encodingBase) { // UTF
@@ -416,7 +416,7 @@ __private_extern__ uint16_t __CFStringEncodingGetWindowsCodePage(CFStringEncodin
     return 0;
 }
 
-__private_extern__ CFStringEncoding __CFStringEncodingGetFromWindowsCodePage(uint16_t codepage) {
+CF_PRIVATE CFStringEncoding __CFStringEncodingGetFromWindowsCodePage(uint16_t codepage) {
     switch (codepage) {
         case 65001: return kCFStringEncodingUTF8;
         case 1200: return kCFStringEncodingUTF16;
@@ -431,10 +431,10 @@ __private_extern__ CFStringEncoding __CFStringEncodingGetFromWindowsCodePage(uin
         return (codepage - ISO8859CODEPAGE_BASE) + 0x0200;
     } else {
         static CFMutableDictionaryRef mappingTable = NULL;
-        static CFSpinLock_t lock = CFSpinLockInit;
+        static CFLock_t lock = CFLockInit;
         uintptr_t value;
 
-        __CFSpinLock(&lock);
+        __CFLock(&lock);
         if (NULL == mappingTable) {
             CFIndex index, count = sizeof(__CFKnownEncodingList) / sizeof(*__CFKnownEncodingList);
             
@@ -444,7 +444,7 @@ __private_extern__ CFStringEncoding __CFStringEncodingGetFromWindowsCodePage(uin
                 if (0 != __CFWindowsCPList[index]) CFDictionarySetValue(mappingTable, (const void *)(uintptr_t)__CFWindowsCPList[index], (const void *)(uintptr_t)__CFKnownEncodingList[index]);
             }
         }
-        __CFSpinUnlock(&lock);
+        __CFUnlock(&lock);
 
         if (CFDictionaryGetValueIfPresent(mappingTable, (const void *)(uintptr_t)codepage, (const void **)&value)) return (CFStringEncoding)value;
     }
@@ -453,7 +453,7 @@ __private_extern__ CFStringEncoding __CFStringEncodingGetFromWindowsCodePage(uin
     return kCFStringEncodingInvalidId;
 }
 
-__private_extern__ bool __CFStringEncodingGetCanonicalName(CFStringEncoding encoding, char *buffer, CFIndex bufferSize) {
+CF_PRIVATE bool __CFStringEncodingGetCanonicalName(CFStringEncoding encoding, char *buffer, CFIndex bufferSize) {
     const char *format = "%s";
     const char *name = NULL;
     uint32_t value = 0;
@@ -523,11 +523,11 @@ static CFHashCode __CFCanonicalNameHash(const void *value) {
     return code * (name - (const char *)value);
 }
 
-__private_extern__ CFStringEncoding __CFStringEncodingGetFromCanonicalName(const char *canonicalName) {
+CF_PRIVATE CFStringEncoding __CFStringEncodingGetFromCanonicalName(const char *canonicalName) {
     CFStringEncoding encoding;
     CFIndex prefixLength;
     static CFMutableDictionaryRef mappingTable = NULL;
-    static CFSpinLock_t lock = CFSpinLockInit;
+    static CFLock_t lock = CFLockInit;
 
     prefixLength = strlen("iso-8859-");
     if (0 == strncasecmp_l(canonicalName, "iso-8859-", prefixLength, NULL)) {// do ISO
@@ -550,7 +550,7 @@ __private_extern__ CFStringEncoding __CFStringEncodingGetFromCanonicalName(const
         return __CFStringEncodingGetFromWindowsCodePage(encoding);
     }
     
-    __CFSpinLock(&lock);
+    __CFLock(&lock);
     if (NULL == mappingTable) {
         CFIndex index, count = sizeof(__CFKnownEncodingList) / sizeof(*__CFKnownEncodingList);
 
@@ -574,7 +574,7 @@ __private_extern__ CFStringEncoding __CFStringEncodingGetFromCanonicalName(const
             if (NULL != __CFCanonicalNameList[index]) CFDictionarySetValue(mappingTable, (const void *)(uintptr_t)__CFCanonicalNameList[index], (const void *)(uintptr_t)__CFKnownEncodingList[index]);
         }
     }
-    __CFSpinUnlock(&lock);
+    __CFUnlock(&lock);
 
     if (0 == strncasecmp_l(canonicalName, "macintosh", sizeof("macintosh") - 1, NULL)) return kCFStringEncodingMacRoman;
 
@@ -797,7 +797,7 @@ static const char *__CFOtherNameList[] = {
 };
 #endif /* DEPLOYMENT_TARGET_MACOSX */
 
-__private_extern__ CFStringEncoding __CFStringEncodingGetMostCompatibleMacScript(CFStringEncoding encoding) {
+CF_PRIVATE CFStringEncoding __CFStringEncodingGetMostCompatibleMacScript(CFStringEncoding encoding) {
 #if DEPLOYMENT_TARGET_MACOSX
     switch (encoding & 0x0F00) {
         case 0: return encoding & 0xFF; break; // Mac scripts
@@ -822,7 +822,7 @@ __private_extern__ CFStringEncoding __CFStringEncodingGetMostCompatibleMacScript
     return kCFStringEncodingInvalidId;
 }
 
-__private_extern__ const char *__CFStringEncodingGetName(CFStringEncoding encoding) {
+CF_PRIVATE const char *__CFStringEncodingGetName(CFStringEncoding encoding) {
     switch (encoding) {
         case kCFStringEncodingUTF8: return "Unicode (UTF-8)"; break;
         case kCFStringEncodingUTF16: return "Unicode (UTF-16)"; break;

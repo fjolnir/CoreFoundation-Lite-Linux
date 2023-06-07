@@ -1,17 +1,17 @@
 
 include MakefileVersion
 
-MIN_MACOSX_VERSION=10.7
-MAX_MACOSX_VERSION=MAC_OS_X_VERSION_10_7
+MIN_MACOSX_VERSION=10.9
+MAX_MACOSX_VERSION=MAC_OS_X_VERSION_10_9
 
-OBJECTS = CFCharacterSet.o CFPreferences.o CFApplicationPreferences.o CFXMLPreferencesDomain.o CFStringEncodingConverter.o CFUniChar.o CFArray.o CFOldStylePList.o CFPropertyList.o CFStringEncodingDatabase.o CFUnicodeDecomposition.o CFBag.o CFData.o  CFStringEncodings.o CFUnicodePrecomposition.o CFBase.o CFDate.o CFNumber.o CFRuntime.o CFStringScanner.o CFBinaryHeap.o CFDateFormatter.o CFNumberFormatter.o CFSet.o CFStringUtilities.o CFUtilities.o CFBinaryPList.o CFDictionary.o CFPlatform.o CFSystemDirectories.o CFVersion.o CFBitVector.o CFError.o CFPlatformConverters.o CFTimeZone.o  CFBuiltinConverters.o CFFileUtilities.o  CFSortFunctions.o CFTree.o CFICUConverters.o CFURL.o CFLocale.o  CFURLAccess.o CFCalendar.o CFLocaleIdentifier.o CFString.o CFUUID.o CFStorage.o CFLocaleKeys.o CFBigNumber.o CFBurstTrie.o
+OBJECTS = CFCharacterSet.o CFPreferences.o CFApplicationPreferences.o CFXMLPreferencesDomain.o CFStringEncodingConverter.o CFUniChar.o CFArray.o CFOldStylePList.o CFPropertyList.o CFStringEncodingDatabase.o CFUnicodeDecomposition.o CFBag.o CFData.o  CFStringEncodings.o CFUnicodePrecomposition.o CFBase.o CFDate.o CFNumber.o CFRuntime.o CFStringScanner.o CFBinaryHeap.o CFDateFormatter.o CFNumberFormatter.o CFSet.o CFStringUtilities.o CFUtilities.o CFBinaryPList.o CFDictionary.o CFPlatform.o CFSystemDirectories.o CFVersion.o CFBitVector.o CFError.o CFPlatformConverters.o CFTimeZone.o  CFBuiltinConverters.o CFURLEnumerator.o CFFileUtilities.o  CFSortFunctions.o CFTree.o CFICUConverters.o CFURL.o CFLocale.o  CFURLAccess.o CFCalendar.o CFLocaleIdentifier.o CFString.o CFUUID.o CFStorage.o CFLocaleKeys.o CFBigNumber.o CFBurstTrie.o
 OBJECTS += CFBasicHash.o
 HFILES = $(wildcard *.h)
 INTERMEDIATE_HFILES = $(addprefix $(OBJBASE)/CoreFoundation/,$(HFILES))
 
-PUBLIC_HEADERS=CFArray.h CFBag.h CFBase.h CFBinaryHeap.h CFBitVector.h CFByteOrder.h CFCalendar.h CFCharacterSet.h CFData.h CFDate.h CFDateFormatter.h CFDictionary.h CFError.h CFLocale.h CFMachPort.h CFNumber.h CFNumberFormatter.h CFPreferences.h CFPropertyList.h CFSet.h CFString.h CFStringEncodingExt.h CFTimeZone.h CFTree.h CFURL.h CFURLAccess.h CFUUID.h CoreFoundation.h TargetConditionals.h
+PUBLIC_HEADERS=CFArray.h CFBag.h CFBase.h CFBinaryHeap.h CFBitVector.h CFByteOrder.h CFCalendar.h CFCharacterSet.h CFData.h CFDate.h CFDateFormatter.h CFDictionary.h CFError.h CFLocale.h CFMachPort.h CFNumber.h CFNumberFormatter.h CFPreferences.h CFURLEnumerator.h CFPropertyList.h CFSet.h CFString.h CFStringEncodingExt.h CFTimeZone.h CFTree.h CFURL.h CFURLAccess.h CFUUID.h CFAvailability.h CFUtilities.h CoreFoundation.h TargetConditionals.h
 
-PRIVATE_HEADERS= CFCharacterSetPriv.h CFError_Private.h CFLogUtilities.h CFPriv.h CFRuntime.h CFStorage.h CFStringDefaultEncoding.h CFStringEncodingConverter.h CFStringEncodingConverterExt.h CFUniChar.h CFUnicodeDecomposition.h CFUnicodePrecomposition.h ForFoundationOnly.h 
+PRIVATE_HEADERS= CFCharacterSetPriv.h CFError_Private.h CFLogUtilities.h CFPriv.h CFRuntime.h CFStorage.h CFStringDefaultEncoding.h CFStringEncodingConverter.h CFStringEncodingConverterExt.h CFUniChar.h CFUnicodeDecomposition.h CFUnicodePrecomposition.h ForFoundationOnly.h CFICULogging.h
 
 RESOURCES = CFCharacterSetBitmaps.bitmap CFUnicodeData-L.mapping CFUnicodeData-B.mapping
 
@@ -24,18 +24,20 @@ STYLE_CFLAGS=-O0 -g
 STYLE_LFLAGS=
 
 CC = /usr/bin/clang
+AR = /usr/bin/ar
+RANLIB = /usr/bin/ranlib
 
-CFLAGS=-c -x c -fblocks -fpic -pipe -std=gnu99 -Wno-trigraphs -fexceptions -DCF_BUILDING_CF=1 -DDEPLOYMENT_TARGET_LINUX=1 -DMAC_OS_X_VERSION_MAX_ALLOWED=$(MAX_MACOSX_VERSION) -DU_SHOW_DRAFT_API=1 -DU_SHOW_CPLUSPLUS_API=0 -I$(OBJBASE) -I$(OBJBASE)/CoreFoundation -DVERSION=$(VERSION) -include CoreFoundation_Prefix.h
+CFLAGS=-c -x c -fblocks -fpic -pipe -std=gnu11 -Wno-trigraphs -fexceptions -DCF_BUILDING_CF=1 -DDEPLOYMENT_TARGET_LINUX=1 -DMAC_OS_X_VERSION_MAX_ALLOWED=$(MAX_MACOSX_VERSION) -DU_SHOW_DRAFT_API=1 -DU_SHOW_CPLUSPLUS_API=0 -DOSSpinLock=pthread_mutex_t -DOS_SPINLOCK_INIT=PTHREAD_MUTEX_INITIALIZER -DOSSpinLockLock=pthread_mutex_lock -DOSSpinLockUnlock=pthread_mutex_unlock -I$(OBJBASE) -I$(OBJBASE)/CoreFoundation -DVERSION=$(VERSION) -include CoreFoundation_Prefix.h
 
-LFLAGS=-shared -fpic -init=___CFInitialize -Wl,--no-undefined,-soname,libCoreFoundation.so
+LFLAGS=-shared -fpic -Wl,--no-undefined,-soname,libCoreFoundation.so
 
 # Libs for open source version of ICU
-LIBS=-lc -lpthread -lm -lrt  -licuuc -licudata -licui18n -lBlocksRuntime -ldispatch
+LIBS=-lc -lpthread -lm -lrt  -licuuc -licudata -licui18n -lBlocksRuntime -ldispatch -lpthread_workqueue
 
 .PHONY: all install clean
 .PRECIOUS: $(OBJBASE)/CoreFoundation/%.h
 
-all: $(OBJBASE)/libCoreFoundation.so
+all: $(OBJBASE)/libCoreFoundation.so $(OBJBASE)/libCoreFoundation.a
 
 clean:
 	-/bin/rm -rf $(OBJBASE_ROOT)
@@ -52,11 +54,15 @@ $(OBJBASE)/%.o: %.c $(INTERMEDIATE_HFILES)
 $(OBJBASE)/%.o: %.m $(INTERMEDIATE_HFILES)
 	$(CC) $(STYLE_CFLAGS) $(CFLAGS) $< -o $@
 
+$(OBJBASE)/libCoreFoundation.a: $(addprefix $(OBJBASE)/,$(OBJECTS))
+	$(AR) cru $(OBJBASE)/libCoreFoundation.a $^
+	$(RANLIB) $(OBJBASE)/libCoreFoundation.a
+
 $(OBJBASE)/libCoreFoundation.so: $(addprefix $(OBJBASE)/,$(OBJECTS))
 	$(CC) $(STYLE_LFLAGS) $(LFLAGS) $^ -L/usr/local/lib $(LIBS) -o $(OBJBASE)/libCoreFoundation.so
 	@echo "Building done. 'sudo make install' to put the result into $(DSTBASE)/lib and $(DSTBASE)/include."
 	
-install: $(OBJBASE)/libCoreFoundation.so
+install: $(OBJBASE)/libCoreFoundation.so $(OBJBASE)/libCoreFoundation.a
 	/bin/mkdir -p $(DSTBASE)
 	/bin/mkdir -p $(DSTBASE)/include/CoreFoundation
 	/bin/mkdir -p $(DSTBASE)/share/CoreFoundation
@@ -65,6 +71,7 @@ install: $(OBJBASE)/libCoreFoundation.so
 	/bin/cp $(PRIVATE_HEADERS) $(DSTBASE)/include/CoreFoundation
 	/bin/cp $(PUBLIC_HEADERS) $(DSTBASE)/include/CoreFoundation
 	/bin/cp $(OBJBASE)/libCoreFoundation.so $(DSTBASE)/lib
+	/bin/cp $(OBJBASE)/libCoreFoundation.a $(DSTBASE)/lib
 	/bin/cp $(RESOURCES) $(DSTBASE)/share/CoreFoundation
 	# this one goes outside the base directory
 	/bin/cp TargetConditionals.h $(DSTBASE)/include

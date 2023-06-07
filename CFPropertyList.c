@@ -1,15 +1,15 @@
 /*
- * Copyright (c) 2012 Apple Inc. All rights reserved.
+ * Copyright (c) 2015 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
- * 
+ *
  * This file contains Original Code and/or Modifications of Original Code
  * as defined in and that are subject to the Apple Public Source License
  * Version 2.0 (the 'License'). You may not use this file except in
  * compliance with the License. Please obtain a copy of the License at
  * http://www.opensource.apple.com/apsl/ and read it before using this
  * file.
- * 
+ *
  * The Original Code and all software distributed under the License are
  * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
  * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
@@ -17,12 +17,12 @@
  * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
  * Please see the License for the specific language governing rights and
  * limitations under the License.
- * 
+ *
  * @APPLE_LICENSE_HEADER_END@
  */
 
 /*	CFPropertyList.c
-	Copyright (c) 1999-2012, Apple Inc. All rights reserved.
+	Copyright (c) 1999-2014, Apple Inc. All rights reserved.
 	Responsibility: Tony Parker
 */
 
@@ -48,7 +48,11 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include <time.h>
 #include <ctype.h>
+
+
+CF_EXPORT CFNumberType _CFNumberGetType2(CFNumberRef number);
 
 #define PLIST_IX    0
 #define ARRAY_IX    1
@@ -89,7 +93,7 @@
     if (N ## _count__ == 0) N ## _count__ = 1; \
     STACK_BUFFER_DECL(CFTypeRef, N ## _buffer__, N ## _is_stack__ ? N ## _count__ : 1); \
     if (N ## _is_stack__) memset(N ## _buffer__, 0, N ## _count__ * sizeof(CFTypeRef)); \
-    CFTypeRef * N = N ## _is_stack__ ? N ## _buffer__ : (CFTypeRef *)CFAllocatorAllocate(kCFAllocatorSystemDefaultGCRefZero, (N ## _count__) * sizeof(CFTypeRef), __kCFAllocatorGCScannedMemory); \
+    CFTypeRef * N = N ## _is_stack__ ? N ## _buffer__ : (CFTypeRef *)CFAllocatorAllocate(kCFAllocatorSystemDefault, (N ## _count__) * sizeof(CFTypeRef), __kCFAllocatorGCScannedMemory); \
     if (! N) { \
         CRSetCrashLogMessage("CFPropertyList ran out of memory while attempting to allocate temporary storage."); \
         HALT; \
@@ -100,7 +104,7 @@
 #if !defined(free_cftype_array)
 #define free_cftype_array(N) \
     if (! N ## _is_stack__) { \
-        if (!_CFAllocatorIsGCRefZero(kCFAllocatorSystemDefaultGCRefZero)) CFAllocatorDeallocate(kCFAllocatorSystemDefault, N); \
+        CFAllocatorDeallocate(kCFAllocatorSystemDefault, N); \
     } \
     do {} while (0)
 #endif
@@ -126,7 +130,7 @@ static void initStatics() {
     });
 }
 
-__private_extern__ CFErrorRef __CFPropertyListCreateError(CFIndex code, CFStringRef debugString, ...) {    
+CF_PRIVATE CFErrorRef __CFPropertyListCreateError(CFIndex code, CFStringRef debugString, ...) {    
     va_list argList;        
     CFErrorRef error = NULL;
     
@@ -154,8 +158,13 @@ static CFStringRef __copyErrorDebugDescription(CFErrorRef error) {
     CFStringRef result = NULL;
     if (error) {
         CFDictionaryRef userInfo = CFErrorCopyUserInfo(error);
-        result = CFStringCreateCopy(kCFAllocatorSystemDefault, (CFStringRef)CFDictionaryGetValue(userInfo, kCFErrorDebugDescriptionKey));
-        CFRelease(userInfo);
+        if (userInfo != NULL) {
+            CFStringRef desc = (CFStringRef) CFDictionaryGetValue(userInfo, kCFErrorDebugDescriptionKey);
+            if (desc != NULL) {
+                result = CFStringCreateCopy(kCFAllocatorSystemDefault, desc);
+            }
+            CFRelease(userInfo);
+        }
     }
     return result;
 }
@@ -244,9 +253,9 @@ static bool __CFPropertyListIsValidAux(CFPropertyListRef plist, bool recursive, 
 static Boolean _CFPropertyListIsValidWithErrorString(CFPropertyListRef plist, CFPropertyListFormat format, CFStringRef *error) {
     initStatics();
     CFAssert1(plist != NULL, __kCFLogAssertion, "%s(): NULL is not a property list", __PRETTY_FUNCTION__);
-    CFMutableSetRef set = CFSetCreateMutable(kCFAllocatorSystemDefaultGCRefZero, 0, NULL);
+    CFMutableSetRef set = CFSetCreateMutable(kCFAllocatorSystemDefault, 0, NULL);
     bool result = __CFPropertyListIsValidAux(plist, true, set, format, error);
-    if (!_CFAllocatorIsGCRefZero(kCFAllocatorSystemDefaultGCRefZero)) CFRelease(set);
+    CFRelease(set);
     return result;
 }
 
@@ -299,10 +308,10 @@ typedef struct {
     Boolean skip; // if true, do not create any objects.
 } _CFXMLPlistParseInfo;
 
-__private_extern__ CFTypeRef __CFParseOldStylePropertyListOrStringsFile(CFAllocatorRef allocator, CFDataRef xmlData, CFStringRef originalString, CFStringEncoding guessedEncoding, CFOptionFlags option, CFErrorRef *outError,CFPropertyListFormat *format);
+CF_PRIVATE CFTypeRef __CFCreateOldStylePropertyListOrStringsFile(CFAllocatorRef allocator, CFDataRef xmlData, CFStringRef originalString, CFStringEncoding guessedEncoding, CFOptionFlags option, CFErrorRef *outError,CFPropertyListFormat *format);
 
 CF_INLINE void __CFPListRelease(CFTypeRef cf, CFAllocatorRef allocator) {
-    if (cf && !_CFAllocatorIsGCRefZero(allocator)) CFRelease(cf);
+    if (cf && !(0)) CFRelease(cf);
 }
 
 
@@ -591,22 +600,38 @@ static void _CFAppendXML0(CFTypeRef object, UInt32 indentation, CFMutableDataRef
     } else if (typeID == datetype) {
         // YYYY '-' MM '-' DD 'T' hh ':' mm ':' ss 'Z'
 	int32_t y = 0, M = 0, d = 0, H = 0, m = 0, s = 0;
-#if 1
-        CFGregorianDate date = CFAbsoluteTimeGetGregorianDate(CFDateGetAbsoluteTime((CFDateRef)object), NULL);
-	y = date.year;
-	M = date.month;
-	d = date.day;
-	H = date.hour;
-	m = date.minute;
-	s = (int32_t)date.second;
-#else
-	CFCalendarRef calendar = CFCalendarCreateWithIdentifier(kCFAllocatorSystemDefault, kCFCalendarIdentifierGregorian);
-	CFTimeZoneRef tz = CFTimeZoneCreateWithName(kCFAllocatorSystemDefault, CFSTR("GMT"), true);
-	CFCalendarSetTimeZone(calendar, tz);
-	CFCalendarDecomposeAbsoluteTime(calendar, CFDateGetAbsoluteTime((CFDateRef)object), (const uint8_t *)"yMdHms", &y, &M, &d, &H, &m, &s);
-	CFRelease(calendar);
-	CFRelease(tz);
+        CFAbsoluteTime at = CFDateGetAbsoluteTime((CFDateRef)object);
+#if 0
+        // Alternative to the CFAbsoluteTimeGetGregorianDate() code which works well
+        struct timeval tv;
+        struct tm mine;
+        tv.tv_sec = floor(at + kCFAbsoluteTimeIntervalSince1970);
+        gmtime_r(&tv.tv_sec, &mine);
+	y = mine.tm_year + 1900;
+	M = mine.tm_mon + 1;
+	d = mine.tm_mday;
+	H = mine.tm_hour;
+	m = mine.tm_min;
+	s = mine.tm_sec;
 #endif
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated"
+        CFGregorianDate date = CFAbsoluteTimeGetGregorianDate(at, NULL);
+#pragma GCC diagnostic pop
+
+#if 0
+if (date.year != y || date.month != M || date.day != d || date.hour != H || date.minute != m || (int32_t)date.second != s) {
+    CFLog(4, CFSTR("DATE ERROR {%d, %d, %d, %d, %d, %d} != {%d,  %d, %d, %d, %d, %d}\n"), (int)date.year, (int)date.month, (int)date.day, (int)date.hour, (int)date.minute, (int32_t)date.second, y, M, d, H, m, s);
+}
+#endif
+        y = date.year;
+        M = date.month;
+        d = date.day;
+        H = date.hour;
+        m = date.minute;
+        s = (int32_t)date.second;
+
         _plistAppendUTF8CString(xmlString, "<");
         _plistAppendCharacters(xmlString, CFXMLPlistTagsUnicode[DATE_IX], DATE_TAG_LENGTH);
         _plistAppendUTF8CString(xmlString, ">");
@@ -691,7 +716,7 @@ CF_EXPORT CFDataRef _CFPropertyListCreateXMLDataWithExtras(CFAllocatorRef alloca
 Boolean CFPropertyListIsValid(CFPropertyListRef plist, CFPropertyListFormat format) {
     initStatics();
     CFAssert1(plist != NULL, __kCFLogAssertion, "%s(): NULL is not a property list", __PRETTY_FUNCTION__);
-    CFMutableSetRef set = CFSetCreateMutable(kCFAllocatorSystemDefaultGCRefZero, 0, NULL);
+    CFMutableSetRef set = CFSetCreateMutable(kCFAllocatorSystemDefault, 0, NULL);
     CFStringRef error = NULL;
     bool result = __CFPropertyListIsValidAux(plist, true, set, format, &error);
     if (error) {
@@ -700,7 +725,7 @@ Boolean CFPropertyListIsValid(CFPropertyListRef plist, CFPropertyListFormat form
 #endif
 	CFRelease(error);
     }
-    if (!_CFAllocatorIsGCRefZero(kCFAllocatorSystemDefaultGCRefZero)) CFRelease(set);
+    CFRelease(set);
     return result;
 }
 
@@ -1072,8 +1097,6 @@ static void parseEntityReference_pl(_CFXMLPlistParseInfo *pInfo, CFMutableDataRe
     CFDataAppendBytes(stringData, (const UInt8 *)&ch, 1);
 }
 
-extern void _CFStrSetDesiredCapacity(CFMutableStringRef str, CFIndex len);
-
 static void _createStringMap(_CFXMLPlistParseInfo *pInfo) {
     pInfo->stringTrie = CFBurstTrieCreate();
     pInfo->stringCache = CFArrayCreateMutable(pInfo->allocator, 0, &kCFTypeArrayCallBacks);
@@ -1081,24 +1104,31 @@ static void _createStringMap(_CFXMLPlistParseInfo *pInfo) {
 
 static void _cleanupStringMap(_CFXMLPlistParseInfo *pInfo) {
     CFBurstTrieRelease(pInfo->stringTrie);
-    if (!_CFAllocatorIsGCRefZero(pInfo->allocator)) CFRelease(pInfo->stringCache);
+    CFRelease(pInfo->stringCache);
+    pInfo->stringTrie = NULL;
+    pInfo->stringCache = NULL;
 }
 
-static CFStringRef _uniqueStringForUTF8Bytes(_CFXMLPlistParseInfo *pInfo, const char *base, CFIndex length) {
-    if (length == 0) return !_CFAllocatorIsGCRefZero(pInfo->allocator) ? (CFStringRef)CFRetain(CFSTR("")) : CFSTR("");    
+static CFStringRef _createUniqueStringWithUTF8Bytes(_CFXMLPlistParseInfo *pInfo, const char *base, CFIndex length) {
+    if (length == 0) return !(0) ? (CFStringRef)CFRetain(CFSTR("")) : CFSTR("");    
     
     CFStringRef result = NULL;
     uint32_t payload = 0;
     Boolean uniqued = CFBurstTrieContainsUTF8String(pInfo->stringTrie, (UInt8 *)base, length, &payload);
-    if (uniqued) {
-        result = (CFStringRef)CFArrayGetValueAtIndex(pInfo->stringCache, (CFIndex)payload);
-        if (!_CFAllocatorIsGCRefZero(pInfo->allocator)) CFRetain(result);
+    if (uniqued && payload > 0) {
+        // The index is at payload - 1 (see below).
+        result = (CFStringRef)CFArrayGetValueAtIndex(pInfo->stringCache, (CFIndex)payload - 1);
+        CFRetain(result);
     } else {
         result = CFStringCreateWithBytes(pInfo->allocator, (const UInt8 *)base, length, kCFStringEncodingUTF8, NO);
         if (!result) return NULL;
-        payload = CFArrayGetCount(pInfo->stringCache);
-        CFArrayAppendValue(pInfo->stringCache, result);
-        CFBurstTrieAddUTF8String(pInfo->stringTrie, (UInt8 *)base, length, payload);
+        // Payload must be >0, so the actual index of the value is at payload - 1
+        // We also get add to the array after we make sure that CFBurstTrieAddUTF8String succeeds (it can fail, if the string is too large, for example)
+        payload = CFArrayGetCount(pInfo->stringCache) + 1;
+        Boolean didAddToBurstTrie = CFBurstTrieAddUTF8String(pInfo->stringTrie, (UInt8 *)base, length, payload);
+        if (didAddToBurstTrie) {
+            CFArrayAppendValue(pInfo->stringCache, result);
+        }
     }
     return result;
 }
@@ -1137,7 +1167,7 @@ static Boolean parseStringTag(_CFXMLPlistParseInfo *pInfo, CFStringRef *out) {
             *out = NULL;
         } else {
             if (pInfo->mutabilityOption != kCFPropertyListMutableContainersAndLeaves) {
-                CFStringRef s = _uniqueStringForUTF8Bytes(pInfo, mark, pInfo->curr - mark);
+                CFStringRef s = _createUniqueStringWithUTF8Bytes(pInfo, mark, pInfo->curr - mark);
                 if (!s) {
                     pInfo->error = __CFPropertyListCreateError(kCFPropertyListReadCorruptError, CFSTR("Unable to convert string to correct encoding"));
                     return false;
@@ -1160,7 +1190,7 @@ static Boolean parseStringTag(_CFXMLPlistParseInfo *pInfo, CFStringRef *out) {
         } else {
             CFDataAppendBytes(stringData, (const UInt8 *)mark, pInfo->curr - mark);
             if (pInfo->mutabilityOption != kCFPropertyListMutableContainersAndLeaves) {
-                CFStringRef s = _uniqueStringForUTF8Bytes(pInfo, (const char *)CFDataGetBytePtr(stringData), CFDataGetLength(stringData));
+                CFStringRef s = _createUniqueStringWithUTF8Bytes(pInfo, (const char *)CFDataGetBytePtr(stringData), CFDataGetLength(stringData));
                 if (!s) {
                     pInfo->error = __CFPropertyListCreateError(kCFPropertyListReadCorruptError, CFSTR("Unable to convert string to correct encoding"));
                     return false;
@@ -1276,7 +1306,7 @@ static CFSetRef createTopLevelKeypaths(CFAllocatorRef allocator, CFSetRef keyPat
 }
 
 // This splits up the keypaths into the ones relevant for this level (of array or dictionary), and the ones for the next level (of array or dictionary)
-__private_extern__ void __CFPropertyListCreateSplitKeypaths(CFAllocatorRef allocator, CFSetRef currentKeys, CFSetRef *theseKeys, CFSetRef *nextKeys) {
+CF_PRIVATE void __CFPropertyListCreateSplitKeypaths(CFAllocatorRef allocator, CFSetRef currentKeys, CFSetRef *theseKeys, CFSetRef *nextKeys) {
     if (!currentKeys) { *theseKeys = NULL; *nextKeys = NULL; return; }
     
     CFIndex count = CFSetGetCount(currentKeys);
@@ -1530,6 +1560,7 @@ static Boolean parseDictTag(_CFXMLPlistParseInfo *pInfo, CFTypeRef *out) {
         return true;
     }
     
+    if (dict) __CFPListRelease(dict, pInfo->allocator);
     return false;
 }
 
@@ -1623,11 +1654,15 @@ static Boolean parseDataTag(_CFXMLPlistParseInfo *pInfo, CFTypeRef *out) {
 
 CF_INLINE Boolean read2DigitNumber(_CFXMLPlistParseInfo *pInfo, int32_t *result) {
     char ch1, ch2;
-    if (pInfo->curr + 2 >= pInfo->end) return false;
+    if (pInfo->curr + 2 >= pInfo->end) {
+        return false;
+    }
     ch1 = *pInfo->curr;
     ch2 = *(pInfo->curr + 1);
     pInfo->curr += 2;
-    if (!isdigit(ch1) || !isdigit(ch2)) return false;
+    if (!isdigit(ch1) || !isdigit(ch2)) {
+        return false;
+    }
     *result = (ch1 - '0')*10 + (ch2 - '0');
     return true;
 }
@@ -1691,18 +1726,39 @@ static Boolean parseDateTag(_CFXMLPlistParseInfo *pInfo, CFTypeRef *out) {
     }
 
     CFAbsoluteTime at = 0.0;
-#if 1
+
+#if 0
+    { // alternative to CFGregorianDateGetAbsoluteTime() below; also, cheaper than CFCalendar would be;
+      // clearly not thread-safe with that environment variable having to be set;
+      // timegm() could be used instead of mktime(), on platforms which have it
+        struct tm mine;
+        mine.tm_year = (yearIsNegative ? -year : year) - 1900;
+        mine.tm_mon = month - 1;
+        mine.tm_mday = day;
+        mine.tm_hour = hour;
+        mine.tm_min = minute;
+        mine.tm_sec = second;
+        char *tz = getenv("TZ");
+        setenv("TZ", "", 1);
+        tzset();
+        at = mktime(tm) - kCFAbsoluteTimeIntervalSince1970;
+        if (tz) {
+            setenv("TZ", tz, 1);
+        } else {
+            unsetenv("TZ");
+        }
+        tzset();
+    }
+#endif
+
+    // See <rdar://problem/5052483> Revisit the CFGregorianDate -> CFCalendar change in CFPropertyList.c
+    // for why we can't use CFCalendar
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated"
     CFGregorianDate date = {yearIsNegative ? -year : year, month, day, hour, minute, second};
     at = CFGregorianDateGetAbsoluteTime(date, NULL);
-#else
-    // this doesn't work
-    CFCalendarRef calendar = CFCalendarCreateWithIdentifier(kCFAllocatorSystemDefault, kCFCalendarIdentifierGregorian);
-    CFTimeZoneRef tz = CFTimeZoneCreateWithName(kCFAllocatorSystemDefault, CFSTR("GMT"), true);
-    CFCalendarSetTimeZone(calendar, tz);
-    CFCalendarComposeAbsoluteTime(calendar, &at, (const uint8_t *)"yMdHms", year, month, day, hour, minute, second);
-    CFRelease(calendar);
-    CFRelease(tz);
-#endif
+#pragma GCC diagnostic pop
+
     if (pInfo->skip) {
         *out = NULL;
     } else {
@@ -1795,12 +1851,12 @@ CF_INLINE bool isWhitespace(const char *utf8bytes, const char *end) {
      3000 -> <e38080>
      */
     // Except we consider some additional values from 0x0 to 0x21 and 0x7E to 0xA1 as whitespace, for compatability
-    char byte1 = *utf8bytes;
+    unsigned char byte1 = *utf8bytes;
     if (byte1 < 0x21 || (byte1 > 0x7E && byte1 < 0xA1)) return true;
     if ((byte1 == 0xe2 || byte1 == 0xe3) && (end - utf8bytes >= 3)) {
         // Check other possibilities in the 3-bytes range
-        char byte2 = *(utf8bytes + 1);
-        char byte3 = *(utf8bytes + 2);
+        unsigned char byte2 = *(utf8bytes + 1);
+        unsigned char byte3 = *(utf8bytes + 2);
         if (byte1 == 0xe2 && byte2 == 0x80) {
             return ((byte3 >= 80 && byte3 <= 0x8b) || byte3 == 0xaf);
         } else if (byte1 == 0xe2 && byte2 == 0x81) {
@@ -1943,7 +1999,9 @@ static Boolean parseXMLElement(_CFXMLPlistParseInfo *pInfo, Boolean *isKey, CFTy
         }
         pInfo->curr ++;
     }
-    if (pInfo->curr >= pInfo->end) return false;
+    if (pInfo->curr >= pInfo->end) {
+        return false;
+    }
     isEmpty = (*(pInfo->curr-1) == '/');
     if (markerLength == -1)
         markerLength = pInfo->curr - (isEmpty ? 1 : 0) - marker;
@@ -2339,7 +2397,7 @@ static Boolean _CFPropertyListCreateFromUTF8Data(CFAllocatorRef allocator, CFDat
     if (success && result && format) *format = kCFPropertyListXMLFormat_v1_0;
     
     _cleanupStringMap(pInfo);
-    if (pInfo->keyPaths && !_CFAllocatorIsGCRefZero(allocator)) CFRelease(pInfo->keyPaths);
+    if (pInfo->keyPaths && !(0)) CFRelease(pInfo->keyPaths);
     CFRelease(xmlData);
 
     if (success) {
@@ -2349,7 +2407,7 @@ static Boolean _CFPropertyListCreateFromUTF8Data(CFAllocatorRef allocator, CFDat
     
     // Try again, old-style
     CFErrorRef oldStyleError = NULL;
-    result = __CFParseOldStylePropertyListOrStringsFile(allocator, xmlData, originalString, guessedEncoding, option, outError ? &oldStyleError : NULL, format);
+    result = __CFCreateOldStylePropertyListOrStringsFile(allocator, xmlData, originalString, guessedEncoding, option, outError ? &oldStyleError : NULL, format);
     if (result) {
         // Release old error, return
         if (pInfo->error) CFRelease(pInfo->error);
@@ -2454,12 +2512,17 @@ static Boolean _CFPropertyListCreateWithData(CFAllocatorRef allocator, CFDataRef
     
     // Convert to UTF8 first
     CFStringRef xmlString = CFStringCreateWithBytes(allocator, CFDataGetBytePtr(data) + skip, CFDataGetLength(data) - skip, encoding, false);
+    if (!xmlString) {
+        if (outError) *outError = __CFPropertyListCreateError(kCFPropertyListReadCorruptError, CFSTR("Could not determine the encoding of the XML data (string creation failed)"));
+        return false;
+    }
+    
     CFDataRef utf8Data = _createUTF8DataFromString(allocator, xmlString);
 
     Boolean result = _CFPropertyListCreateFromUTF8Data(allocator, utf8Data, 0, xmlString, 0, option, outError, allowNewTypes, format, topLevelKeys, out);
     
-    if (xmlString && !_CFAllocatorIsGCRefZero(allocator)) CFRelease(xmlString);
-    if (utf8Data && !_CFAllocatorIsGCRefZero(allocator)) CFRelease(utf8Data);
+    if (xmlString && !(0)) CFRelease(xmlString);
+    if (utf8Data && !(0)) CFRelease(utf8Data);
     
     return result;
 }
@@ -2474,7 +2537,7 @@ CFTypeRef _CFPropertyListCreateFromXMLStringError(CFAllocatorRef allocator, CFSt
     CFDataRef utf8Data = _createUTF8DataFromString(allocator, xmlString);
     CFTypeRef result = NULL;
     _CFPropertyListCreateFromUTF8Data(allocator, utf8Data, 0, xmlString, 0, option, error, allowNewTypes, format, NULL, &result);    
-    if (utf8Data && !_CFAllocatorIsGCRefZero(allocator)) CFRelease(utf8Data);
+    if (utf8Data && !(0)) CFRelease(utf8Data);
 
     return result;
 }
@@ -2507,8 +2570,8 @@ CFTypeRef _CFPropertyListCreateFromXMLString(CFAllocatorRef allocator, CFStringR
             
             CFRelease(oldStyleParserUserInfo);
         } else {
-            debugString = (CFStringRef)CFDictionaryGetValue(userInfo, kCFErrorDebugDescriptionKey); 
-            CFRetain(debugString);
+            debugString = (CFStringRef)CFDictionaryGetValue(userInfo, kCFErrorDebugDescriptionKey);
+            if (debugString) CFRetain(debugString);
         }
         
         // Give the debugString to the caller, who is responsible for releasing it
@@ -2523,7 +2586,7 @@ CFTypeRef _CFPropertyListCreateFromXMLString(CFAllocatorRef allocator, CFStringR
     return result;
 }
 
-__private_extern__ bool __CFBinaryPlistCreateObjectFiltered(const uint8_t *databytes, uint64_t datalen, uint64_t startOffset, const CFBinaryPlistTrailer *trailer, CFAllocatorRef allocator, CFOptionFlags mutabilityOption, CFMutableDictionaryRef objects, CFMutableSetRef set, CFIndex curDepth, CFSetRef keyPaths, CFPropertyListRef *plist);
+CF_PRIVATE bool __CFBinaryPlistCreateObjectFiltered(const uint8_t *databytes, uint64_t datalen, uint64_t startOffset, const CFBinaryPlistTrailer *trailer, CFAllocatorRef allocator, CFOptionFlags mutabilityOption, CFMutableDictionaryRef objects, CFMutableSetRef set, CFIndex curDepth, CFSetRef keyPaths, CFPropertyListRef *plist);
 
 // Returns a subset of the property list, only including the key paths in the CFSet.
 bool _CFPropertyListCreateFiltered(CFAllocatorRef allocator, CFDataRef data, CFOptionFlags option, CFSetRef keyPaths, CFPropertyListRef *value, CFErrorRef *error) {
@@ -2553,8 +2616,8 @@ bool _CFPropertyListCreateFiltered(CFAllocatorRef allocator, CFDataRef data, CFO
         CFMutableDictionaryRef objects = CFDictionaryCreateMutable(allocator, 0, NULL, &kCFTypeDictionaryValueCallBacks);
         success = __CFBinaryPlistCreateObjectFiltered(databytes, datalen, valueOffset, &trailer, allocator, option, objects, NULL, 0, splitKeyPaths, &out);
         
-        if (!_CFAllocatorIsGCRefZero(allocator)) CFRelease(splitKeyPaths);
-        if (!_CFAllocatorIsGCRefZero(allocator)) CFRelease(objects);        
+        CFRelease(splitKeyPaths);
+        CFRelease(objects);        
     } else {
 	// Try an XML property list
         success = _CFPropertyListCreateWithData(allocator, data, option, error, true, NULL, keyPaths, &out);
@@ -2595,11 +2658,11 @@ bool _CFPropertyListCreateSingleValue(CFAllocatorRef allocator, CFDataRef data, 
     // First check to see if it is a binary property list
     if (8 <= datalen && __CFBinaryPlistGetTopLevelInfo(databytes, datalen, &marker, &offset, &trailer)) {
         // Split up the key path
-        CFArrayRef keyPathArray = CFStringCreateArrayBySeparatingStrings(kCFAllocatorSystemDefaultGCRefZero, keyPath, CFSTR(":"));
+        CFArrayRef keyPathArray = CFStringCreateArrayBySeparatingStrings(kCFAllocatorSystemDefault, keyPath, CFSTR(":"));
         uint64_t keyOffset, valueOffset = offset;
         
         // Create a dictionary to cache objects in
-        CFMutableDictionaryRef objects = CFDictionaryCreateMutable(kCFAllocatorSystemDefaultGCRefZero, 0, NULL, &kCFTypeDictionaryValueCallBacks);
+        CFMutableDictionaryRef objects = CFDictionaryCreateMutable(kCFAllocatorSystemDefault, 0, NULL, &kCFTypeDictionaryValueCallBacks);
         CFIndex keyPathCount = CFArrayGetCount(keyPathArray);
         _CFDictionarySetCapacity(objects, keyPathCount + 1);
 
@@ -2629,16 +2692,16 @@ bool _CFPropertyListCreateSingleValue(CFAllocatorRef allocator, CFDataRef data, 
 	    }
 	}
         
-        if (!_CFAllocatorIsGCRefZero(kCFAllocatorSystemDefaultGCRefZero)) CFRelease(keyPathArray);
-        if (!_CFAllocatorIsGCRefZero(kCFAllocatorSystemDefaultGCRefZero)) CFRelease(objects);
+        CFRelease(keyPathArray);
+        CFRelease(objects);
     } else {
 	// Try an XML property list
 	// Note: This is currently not any more efficient than grabbing the whole thing. This could be improved in the future.
 	CFPropertyListRef plist = CFPropertyListCreateWithData(allocator, data, option, NULL, error);
-        CFPropertyListRef nextObject = plist;  
-        success = true;
-	if (!(*error) && plist) {
-            CFArrayRef keyPathArray = CFStringCreateArrayBySeparatingStrings(kCFAllocatorSystemDefaultGCRefZero, keyPath, CFSTR(":"));
+        if (plist) {
+            CFPropertyListRef nextObject = plist;
+            success = true;
+            CFArrayRef keyPathArray = CFStringCreateArrayBySeparatingStrings(kCFAllocatorSystemDefault, keyPath, CFSTR(":"));
             for (CFIndex i = 0;  i < CFArrayGetCount(keyPathArray); i++) {
                 CFStringRef oneKey = (CFStringRef)CFArrayGetValueAtIndex(keyPathArray, i);
                 SInt32 intValue = CFStringGetIntValue(oneKey);
@@ -2662,9 +2725,9 @@ bool _CFPropertyListCreateSingleValue(CFAllocatorRef allocator, CFDataRef data, 
                 success = false;
             }
             
-            if (!_CFAllocatorIsGCRefZero(kCFAllocatorSystemDefaultGCRefZero)) CFRelease(keyPathArray);
-	}
-        if (!_CFAllocatorIsGCRefZero(allocator)) CFRelease(plist);
+            CFRelease(keyPathArray);
+            CFRelease(plist);
+        }
     }
     
     return success;
@@ -2774,6 +2837,10 @@ CFIndex CFPropertyListWrite(CFPropertyListRef propertyList, CFWriteStreamRef str
     }
     if (format == kCFPropertyListXMLFormat_v1_0) {
         CFDataRef data = _CFPropertyListCreateXMLData(kCFAllocatorSystemDefault, propertyList, true);
+        if (!data) {
+            CFLog(kCFLogLevelError, CFSTR("Property list format kCFPropertyListXMLFormat_v1_0 specified but was not a valid property list type"));
+            return 0;
+        }
         CFIndex len = CFDataGetLength(data);
 	const uint8_t *ptr = CFDataGetBytePtr(data);
 	while (0 < len) {
@@ -2843,7 +2910,7 @@ CFIndex CFPropertyListWriteToStream(CFPropertyListRef propertyList, CFWriteStrea
     return result;    
 }
 
-static void __convertReadStreamToBytes(CFReadStreamRef stream, CFIndex max, uint8_t **buffer, CFIndex *length, CFErrorRef *error) {
+static bool __convertReadStreamToBytes(CFReadStreamRef stream, CFIndex max, uint8_t **buffer, CFIndex *length, CFErrorRef *error) {
     int32_t buflen = 0, bufsize = 0, retlen;
     uint8_t *buf = NULL, sbuf[8192];
     for (;;) {
@@ -2855,9 +2922,10 @@ static void __convertReadStreamToBytes(CFReadStreamRef stream, CFIndex max, uint
             if (retlen < 0 && error) {
                 // Copy the error out
                 *error = CFReadStreamCopyError(stream);
+                return false;
             }
             
-	    return;
+	    return true;
 	}
         if (bufsize < buflen + retlen) {
 	    if (bufsize < 256 * 1024) {
@@ -2879,9 +2947,10 @@ static void __convertReadStreamToBytes(CFReadStreamRef stream, CFIndex max, uint
 	if (max <= 0) {
 	    *buffer = buf;
 	    *length = buflen;
-	    return;
+	    return true;
 	}
     }
+    return true;
 }
 
 CFPropertyListRef CFPropertyListCreateWithStream(CFAllocatorRef allocator, CFReadStreamRef stream, CFIndex streamLength, CFOptionFlags mutabilityOption, CFPropertyListFormat *format, CFErrorRef *error) {
@@ -2896,17 +2965,20 @@ CFPropertyListRef CFPropertyListCreateWithStream(CFAllocatorRef allocator, CFRea
     CFErrorRef underlyingError = NULL;
     CFIndex buflen = 0;
     uint8_t *buffer = NULL;
-    __convertReadStreamToBytes(stream, streamLength, &buffer, &buflen, &underlyingError);
-    if (underlyingError) {
+    if (!__convertReadStreamToBytes(stream, streamLength, &buffer, &buflen, &underlyingError)) {
         if (error) {
             // Wrap the error from CFReadStream in a new error in the cocoa domain
             CFMutableDictionaryRef userInfo = CFDictionaryCreateMutable(kCFAllocatorSystemDefault, 0, &kCFCopyStringDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks); 
-            CFDictionarySetValue(userInfo, kCFErrorDebugDescriptionKey, CFSTR("Property list reading could not be completed because the stream had an unknown error."));
-            CFDictionarySetValue(userInfo, kCFErrorUnderlyingErrorKey, underlyingError);
+            CFDictionarySetValue(userInfo, kCFErrorDebugDescriptionKey, CFSTR("Property list reading could not be completed because the stream had an unknown error. Did you forget to open the stream?"));
+            if (underlyingError) {
+                CFDictionarySetValue(userInfo, kCFErrorUnderlyingErrorKey, underlyingError);
+            }
             *error = CFErrorCreate(kCFAllocatorSystemDefault, kCFErrorDomainCocoa, kCFPropertyListReadStreamError, userInfo);
             CFRelease(userInfo);
         }
-        CFRelease(underlyingError);
+        if (underlyingError) {
+            CFRelease(underlyingError);
+        }
         return NULL;
     }
     
@@ -2958,9 +3030,7 @@ static CFArrayRef _arrayDeepImmutableCopy(CFAllocatorRef allocator, CFArrayRef a
         }
         result = (i == c) ? CFArrayCreate(allocator, values, c, &kCFTypeArrayCallBacks) : NULL;
         c = i;
-        if (!_CFAllocatorIsGCRefZero(allocator)) {
-            for (i = 0; i < c; i ++) CFRelease(values[i]);
-        }
+        for (i = 0; i < c; i ++) CFRelease(values[i]);
         free_cftype_array(values);
     }
     return result;
@@ -2974,10 +3044,10 @@ static CFMutableArrayRef _arrayDeepMutableCopy(CFAllocatorRef allocator, CFArray
             CFTypeRef newValue = CFPropertyListCreateDeepCopy(allocator, CFArrayGetValueAtIndex(array, i), mutabilityOption);
             if (!newValue) break;
             CFArrayAppendValue(result, newValue);
-            if (!_CFAllocatorIsGCRefZero(allocator)) CFRelease(newValue);
+            CFRelease(newValue);
         }
         if (i != c) {
-            if (!_CFAllocatorIsGCRefZero(allocator)) CFRelease(result);
+            CFRelease(result);
             result = NULL;
         }
     }
@@ -3013,7 +3083,7 @@ CFPropertyListRef CFPropertyListCreateDeepCopy(CFAllocatorRef allocator, CFPrope
                 __CFAssignWithWriteBarrier((void **)keys + i, (void *)newKey);
                 CFTypeRef newValue = CFPropertyListCreateDeepCopy(allocator, values[i], mutabilityOption);
                 if (newValue == NULL) {
-                    if (!_CFAllocatorIsGCRefZero(allocator)) CFRelease(keys[i]);
+                    CFRelease(keys[i]);
                     break;
                 }
                 __CFAssignWithWriteBarrier((void **)values + i, (void *)newValue);
@@ -3024,15 +3094,15 @@ CFPropertyListRef CFPropertyListCreateDeepCopy(CFAllocatorRef allocator, CFPrope
                     if (isMutable) {
                         CFDictionarySetValue((CFMutableDictionaryRef)result, keys[i], values[i]);
                     }
-                    if (!_CFAllocatorIsGCRefZero(allocator)) CFRelease(keys[i]);
-                    if (!_CFAllocatorIsGCRefZero(allocator)) CFRelease(values[i]);
+                    CFRelease(keys[i]);
+                    CFRelease(values[i]);
                 }
             } else {
                 result = NULL;
                 count = i;
                 for (i = 0; i < count; i ++) {
-                    if (!_CFAllocatorIsGCRefZero(allocator)) CFRelease(keys[i]);
-                    if (!_CFAllocatorIsGCRefZero(allocator)) CFRelease(values[i]);
+                    CFRelease(keys[i]);
+                    CFRelease(values[i]);
                 }
             }
             free_cftype_array(keys);
@@ -3050,9 +3120,9 @@ CFPropertyListRef CFPropertyListCreateDeepCopy(CFAllocatorRef allocator, CFPrope
             result = CFDataCreateCopy(allocator, (CFDataRef)propertyList);
         }
     } else if (typeID == numbertype) {
-        // Warning - this will break if byteSize is ever greater than 32
-        uint8_t bytes[32];
-        CFNumberType numType = CFNumberGetType((CFNumberRef)propertyList);
+        // Warning - this will break if byteSize is ever greater than 128
+        uint8_t bytes[128];
+        CFNumberType numType = _CFNumberGetType2((CFNumberRef)propertyList);
         CFNumberGetValue((CFNumberRef)propertyList, numType, (void *)bytes);
         result = CFNumberCreate(allocator, numType, (void *)bytes);
     } else if (typeID == booltype) {

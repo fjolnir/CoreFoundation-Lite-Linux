@@ -1,15 +1,15 @@
 /*
- * Copyright (c) 2012 Apple Inc. All rights reserved.
+ * Copyright (c) 2015 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
- * 
+ *
  * This file contains Original Code and/or Modifications of Original Code
  * as defined in and that are subject to the Apple Public Source License
  * Version 2.0 (the 'License'). You may not use this file except in
  * compliance with the License. Please obtain a copy of the License at
  * http://www.opensource.apple.com/apsl/ and read it before using this
  * file.
- * 
+ *
  * The Original Code and all software distributed under the License are
  * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
  * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
@@ -17,12 +17,12 @@
  * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
  * Please see the License for the specific language governing rights and
  * limitations under the License.
- * 
+ *
  * @APPLE_LICENSE_HEADER_END@
  */
 
 /*	CFStringEncodings.c
-	Copyright (c) 1999-2012, Apple Inc. All rights reserved.
+	Copyright (c) 1999-2014, Apple Inc. All rights reserved.
 	Responsibility: Aki Inoue
 */
 
@@ -57,7 +57,7 @@ Boolean (*__CFCharToUniCharFunc)(UInt32 flags, uint8_t ch, UniChar *unicodeChar)
 
 // To avoid early initialization issues, we just initialize this here
 // This should not be const as it is changed
-__private_extern__ UniChar __CFCharToUniCharTable[256] = {
+CF_PRIVATE UniChar __CFCharToUniCharTable[256] = {
   0,   1,   2,   3,   4,   5,   6,   7,   8,   9,  10,  11,  12,  13,  14,  15,
  16,  17,  18,  19,  20,  21,  22,  23,  24,  25,  26,  27,  28,  29,  30,  31,
  32,  33,  34,  35,  36,  37,  38,  39,  40,  41,  42,  43,  44,  45,  46,  47,
@@ -76,7 +76,7 @@ __private_extern__ UniChar __CFCharToUniCharTable[256] = {
 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255
 };    
 
-__private_extern__ void __CFSetCharToUniCharFunc(Boolean (*func)(UInt32 flags, UInt8 ch, UniChar *unicodeChar)) {
+CF_PRIVATE void __CFSetCharToUniCharFunc(Boolean (*func)(UInt32 flags, UInt8 ch, UniChar *unicodeChar)) {
     if (__CFCharToUniCharFunc != func) {
         int ch;
         __CFCharToUniCharFunc = func;
@@ -91,7 +91,7 @@ __private_extern__ void __CFSetCharToUniCharFunc(Boolean (*func)(UInt32 flags, U
     }
 }
 
-__private_extern__ void __CFStrConvertBytesToUnicode(const uint8_t *bytes, UniChar *buffer, CFIndex numChars) {
+CF_PRIVATE void __CFStrConvertBytesToUnicode(const uint8_t *bytes, UniChar *buffer, CFIndex numChars) {
     CFIndex idx;
     for (idx = 0; idx < numChars; idx++) buffer[idx] = __CFCharToUniCharTable[bytes[idx]];
 }
@@ -955,6 +955,8 @@ void _CFStringGetUserDefaultEncoding(UInt32 *oScriptValue, UInt32 *oRegionValue)
 
     if (stringValue) {
         *oScriptValue = strtol_l(stringValue, &stringValue, 0, NULL);
+        // We force using MacRoman for Arabic/Hebrew users <rdar://problem/17633551> When changing language to Arabic and Hebrew, set the default user encoding to MacRoman, not MacArabic/MacHebrew
+        if ((*oScriptValue == kCFStringEncodingMacArabic) || (*oScriptValue == kCFStringEncodingMacHebrew)) *oScriptValue = kCFStringEncodingMacRoman;
         if (*stringValue == ':') {
             if (oRegionValue) *oRegionValue = strtol_l(++stringValue, NULL, 0, NULL);
             return;
@@ -994,6 +996,8 @@ void _CFStringGetInstallationEncodingAndRegion(uint32_t *encoding, uint32_t *reg
     
     if (stringValue) {
         *encoding = strtol_l(stringValue, &stringValue, 0, NULL);
+        // We force using MacRoman for Arabic/Hebrew users <rdar://problem/17633551> When changing language to Arabic and Hebrew, set the default user encoding to MacRoman, not MacArabic/MacHebrew
+        if ((*encoding == kCFStringEncodingMacArabic) || (*encoding == kCFStringEncodingMacHebrew)) *encoding = kCFStringEncodingMacRoman;
         if (*stringValue == ':') *region = strtol_l(++stringValue, NULL, 0, NULL);
     }
 }
@@ -1017,6 +1021,8 @@ Boolean _CFStringSaveUserDefaultEncoding(UInt32 iScriptValue, UInt32 iRegionValu
 	int fd = open(filename, O_WRONLY|O_CREAT, 0400);
 	if (0 <= fd) {
             char buffer[__kCFMaxDefaultEncodingFileLength];
+            // We force using MacRoman for Arabic/Hebrew users <rdar://problem/17633551> When changing language to Arabic and Hebrew, set the default user encoding to MacRoman, not MacArabic/MacHebrew
+            if ((iScriptValue == kCFStringEncodingMacArabic) || (iScriptValue == kCFStringEncodingMacHebrew)) iScriptValue = kCFStringEncodingMacRoman;
             size_t size = snprintf(buffer, __kCFMaxDefaultEncodingFileLength, "0x%X:0x%X", (unsigned int)iScriptValue, (unsigned int)iRegionValue);
 	    if (size <= __kCFMaxDefaultEncodingFileLength) {
                 int ret = write(fd, buffer, size);
